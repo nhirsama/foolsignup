@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
@@ -70,12 +71,18 @@ func InitDB() {
 			aaguid BLOB NOT NULL,
 			sign_count INTEGER NOT NULL,
 			clone_warning BOOLEAN NOT NULL,
+			backup_eligible BOOLEAN NOT NULL DEFAULT 0,
+			backup_state BOOLEAN NOT NULL DEFAULT 0,
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		);`
 
 		if _, err := Instance.Exec(schema); err != nil {
 			log.Fatalf("failed to initialize schema: %v", err)
 		}
+
+		// 增量升级旧表结构
+		_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN backup_eligible BOOLEAN NOT NULL DEFAULT 0")
+		_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN backup_state BOOLEAN NOT NULL DEFAULT 0")
 
 		var count int
 		_ = Instance.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
@@ -94,17 +101,18 @@ func GetUserByID(id int) (string, string, bool) {
 }
 
 // GetUserCredentials 获取用户的 WebAuthn 凭证。
-func GetUserCredentials(userID int) ([][]byte, error) {
-	rows, err := Instance.Query("SELECT id FROM webauthn_credentials WHERE user_id = ?", userID)
+func GetUserCredentials(userID int) ([]webauthn.Credential, error) {
+	rows, err := Instance.Query("SELECT id, public_key, attestation_type, aaguid, sign_count, backup_eligible, backup_state FROM webauthn_credentials WHERE user_id = ?", userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var creds [][]byte
+
+	var creds []webauthn.Credential
 	for rows.Next() {
-		var id []byte
-		if err := rows.Scan(&id); err == nil {
-			creds = append(creds, id)
+		var c webauthn.Credential
+		if err := rows.Scan(&c.ID, &c.PublicKey, &c.AttestationType, &c.Authenticator.AAGUID, &c.Authenticator.SignCount, &c.Flags.BackupEligible, &c.Flags.BackupState); err == nil {
+			creds = append(creds, c)
 		}
 	}
 	return creds, nil
@@ -119,9 +127,15 @@ func GetCredentialByID(credID []byte) (int, []byte, error) {
 }
 
 // SaveCredential 存储凭证。
-func SaveCredential(userID int, credID, pubKey []byte, attType string, aaguid []byte, signCount int) error {
-	query := "INSERT INTO webauthn_credentials (id, user_id, public_key, attestation_type, aaguid, sign_count, clone_warning) VALUES (?, ?, ?, ?, ?, ?, ?)"
-	_, err := Instance.Exec(query, credID, userID, pubKey, attType, aaguid, signCount, false)
+func SaveCredential(userID int, credID, pubKey []byte, attType string, aaguid []byte, signCount int, backupEligible, backupState bool) error {
+	query := "INSERT INTO webauthn_credentials (id, user_id, public_key, attestation_type, aaguid, sign_count, clone_warning, backup_eligible, backup_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	_, err := Instance.Exec(query, credID, userID, pubKey, attType, aaguid, signCount, false, backupEligible, backupState)
+	return err
+}
+
+// UpdateCredentialSignCount 更新凭证的签名计数。
+func UpdateCredentialSignCount(credID []byte, signCount uint32) error {
+	_, err := Instance.Exec("UPDATE webauthn_credentials SET sign_count = ? WHERE id = ?", signCount, credID)
 	return err
 }
 
@@ -143,7 +157,6 @@ func GetVerificationCode(email string) (string, bool) {
 // SaveVerificationCode 存储一个新的验证码（支持多个并存）。
 func SaveVerificationCode(email, code string) error {
 	expiresAt := time.Now().Add(10 * time.Minute)
-	// 使用 INSERT 并处理重复（如果完全一样则更新过期时间）
 	query := "INSERT INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?) ON CONFLICT(email, code) DO UPDATE SET expires_at = excluded.expires_at"
 	_, err := Instance.Exec(query, email, code, expiresAt)
 	return err
@@ -152,10 +165,7 @@ func SaveVerificationCode(email, code string) error {
 // VerifyCode 检查邮箱对应的任意一个未过期的验证码是否匹配。
 func VerifyCode(email, code string) bool {
 	var count int
-	query := "SELECT COUNT(*) FROM verification_codes WHERE email = ? AND code = ? AND expires_at > DATETIME('now')"
-	// 注意：SQLite 的 DATETIME('now') 可能有时区问题，建议使用 Go 传入时间戳或统一使用 UTC。
-	// 这里为了简单，我们传入当前时间。
-	query = "SELECT COUNT(*) FROM verification_codes WHERE email = ? AND code = ? AND expires_at > ?"
+	query := "SELECT COUNT(*) FROM verification_codes WHERE email = ? AND code = ? AND expires_at > ?"
 	err := Instance.QueryRow(query, email, code, time.Now()).Scan(&count)
 	if err != nil {
 		return false
@@ -164,7 +174,6 @@ func VerifyCode(email, code string) bool {
 }
 
 // CreateBaitUser 创建一个虚假用户并为其开启 2FA 以阻止非法登录。
-// 若 age >= 0 则使用指定年龄，否则生成随机年龄。
 func CreateBaitUser(password string, age int) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -195,19 +204,14 @@ func CreateBaitUser(password string, age int) error {
 	fakePubKey := make([]byte, 64)
 	_, _ = rand.Read(fakePubKey)
 
-	return SaveCredential(int(userID), fakeCredID, fakePubKey, "packed", make([]byte, 16), 0)
+	return SaveCredential(int(userID), fakeCredID, fakePubKey, "packed", make([]byte, 16), 0, false, false)
 }
 
 func seedData() {
-	// 默认初始密码列表
 	passwords := []string{"admin123", "password", "12345678", "qwerty", "welcome1"}
-
-	// 1. 先用固定密码占一部分年龄
 	for i, pwd := range passwords {
 		_ = CreateBaitUser(pwd, i)
 	}
-
-	// 2. 补齐 0-99 岁的剩余空位，密码随机
 	for age := len(passwords); age < 100; age++ {
 		randomPwd := fmt.Sprintf("pwd_%d_%d", age, rand.Intn(1000000))
 		_ = CreateBaitUser(randomPwd, age)
@@ -232,32 +236,25 @@ func IncrementRegistrationCount(email string) error {
 	return err
 }
 
-// CheckConflict checks if user details conflict with existing records.
-// Returns (field, owner) if a conflict exists.
+// CheckConflict 检查用户信息是否与现有记录冲突。
 func CheckConflict(username, email string, age int, password string) (string, string) {
 	var existingUser string
-
-	// Check username
 	if err := Instance.QueryRow("SELECT username FROM users WHERE username = ?", username).Scan(&existingUser); err == nil {
 		return "用户名", ""
 	}
-	// Check email
 	if err := Instance.QueryRow("SELECT username FROM users WHERE email = ?", email).Scan(&existingUser); err == nil {
 		return "邮箱地址", ""
 	}
-	// Check age (business requirement for uniqueness)
 	if err := Instance.QueryRow("SELECT username FROM users WHERE age = ?", age).Scan(&existingUser); err == nil {
 		return "年龄", existingUser
 	}
-	// Check password (business requirement for uniqueness)
 	if err := Instance.QueryRow("SELECT username FROM users WHERE plain_password = ?", password).Scan(&existingUser); err == nil {
 		return "密码", existingUser
 	}
-
 	return "", ""
 }
 
-// SaveUser persists a new user to the database.
+// SaveUser 将新用户持久化到数据库。
 func SaveUser(username, email string, age int, password string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -268,7 +265,7 @@ func SaveUser(username, email string, age int, password string) error {
 	return err
 }
 
-// GetUserByCredentials authenticates a user and returns their ID.
+// GetUserByCredentials 验证用户并返回其 ID。
 func GetUserByCredentials(username, password string) (int, bool) {
 	var id int
 	var hash string

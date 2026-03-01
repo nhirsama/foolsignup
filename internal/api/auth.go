@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"foolsignup/internal/db"
@@ -39,14 +40,22 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 	has2fa := db.Has2FA(id)
 	tempToken := fmt.Sprintf("temp_%d", id)
 
+	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+	isSecure := strings.HasPrefix(allowedOrigin, "https://")
+
 	// 下发临时 Cookie 用于后续 WebAuthn 验证
-	http.SetCookie(w, &http.Cookie{
+	tempCookie := &http.Cookie{
 		Name:     "uip_temp_auth",
 		Value:    tempToken,
 		Path:     "/",
 		HttpOnly: true,
 		MaxAge:   300, // 5 分钟有效
-	})
+	}
+	if isSecure {
+		tempCookie.Secure = true
+		tempCookie.SameSite = http.SameSiteNoneMode
+	}
+	http.SetCookie(w, tempCookie)
 
 	res.Code = http.StatusOK
 	res.Msg = "密码验证通过"

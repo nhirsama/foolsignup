@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,7 +38,6 @@ func getWebAuthn() *webauthn.WebAuthn {
 			origin = allowedOrigin
 			u, err := url.Parse(allowedOrigin)
 			if err == nil {
-				// 移除端口号以获得 RPID
 				rpID = u.Hostname()
 			}
 		}
@@ -69,7 +69,9 @@ func (u *User) WebAuthnIcon() string                       { return "" }
 func (u *User) WebAuthnCredentials() []webauthn.Credential { return u.credentials }
 
 func HandleGetWebAuthnRegistrationOptions(w http.ResponseWriter, r *http.Request) {
-	setCorsHeaders(w)
+	if !setupCORSAndMethod(w, r, http.MethodGet) {
+		return
+	}
 	res := &authpb.GetWebAuthnRegistrationOptionsResponse{TraceId: getTraceID(r)}
 
 	userID, ok := getTempUserID(r)
@@ -83,8 +85,10 @@ func HandleGetWebAuthnRegistrationOptions(w http.ResponseWriter, r *http.Request
 	username, _, _ := db.GetUserByID(userID)
 	user := &User{id: userID, username: username}
 
+	// 明确配置 AuthenticatorSelection 以支持现代同步凭证（Passkeys）
 	options, session, err := getWebAuthn().BeginRegistration(user, webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
 		UserVerification: protocol.VerificationPreferred,
+		ResidentKey:      protocol.ResidentKeyRequirementPreferred,
 	}))
 	if err != nil {
 		res.Code = http.StatusInternalServerError
@@ -105,7 +109,9 @@ func HandleGetWebAuthnRegistrationOptions(w http.ResponseWriter, r *http.Request
 }
 
 func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
-	setCorsHeaders(w)
+	if !setupCORSAndMethod(w, r, http.MethodPost) {
+		return
+	}
 	res := &authpb.VerifyWebAuthnRegistrationResponse{TraceId: getTraceID(r)}
 
 	var req authpb.VerifyWebAuthnRegistrationRequest
@@ -137,8 +143,8 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 	username, _, _ := db.GetUserByID(userID)
 	user := &User{id: userID, username: username}
 
-	// 构造一个模拟请求以使用 ParseCredentialCreationResponse
 	fakeReq, _ := http.NewRequest("POST", "/", bytes.NewReader([]byte(req.CredentialJson)))
+	fakeReq.Header.Set("Content-Type", "application/json")
 	parsedResponse, err := protocol.ParseCredentialCreationResponse(fakeReq)
 	if err != nil {
 		res.Code = http.StatusBadRequest
@@ -155,7 +161,8 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = db.SaveCredential(userID, credential.ID, credential.PublicKey, string(credential.AttestationType), credential.Authenticator.AAGUID, int(credential.Authenticator.SignCount))
+	// 关键：将 BackupEligible 和 BackupState 保存到数据库
+	err = db.SaveCredential(userID, credential.ID, credential.PublicKey, string(credential.AttestationType), credential.Authenticator.AAGUID, int(credential.Authenticator.SignCount), credential.Flags.BackupEligible, credential.Flags.BackupState)
 	if err != nil {
 		res.Code = http.StatusInternalServerError
 		res.Msg = "无法保存凭证"
@@ -180,7 +187,9 @@ func getTempUserID(r *http.Request) (int, bool) {
 }
 
 func HandleGetWebAuthnLoginOptions(w http.ResponseWriter, r *http.Request) {
-	setCorsHeaders(w)
+	if !setupCORSAndMethod(w, r, http.MethodPost) {
+		return
+	}
 	res := &authpb.GetWebAuthnLoginOptionsResponse{TraceId: getTraceID(r)}
 
 	var req authpb.GetWebAuthnLoginOptionsRequest
@@ -200,7 +209,8 @@ func HandleGetWebAuthnLoginOptions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username, _, _ := db.GetUserByID(userID)
-	user := &User{id: userID, username: username}
+	creds, _ := db.GetUserCredentials(userID)
+	user := &User{id: userID, username: username, credentials: creds}
 
 	options, session, err := getWebAuthn().BeginLogin(user)
 	if err != nil {
@@ -222,7 +232,9 @@ func HandleGetWebAuthnLoginOptions(w http.ResponseWriter, r *http.Request) {
 }
 
 func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
-	setCorsHeaders(w)
+	if !setupCORSAndMethod(w, r, http.MethodPost) {
+		return
+	}
 	res := &authpb.VerifyWebAuthnLoginResponse{TraceId: getTraceID(r)}
 
 	var req authpb.VerifyWebAuthnLoginRequest
@@ -252,9 +264,11 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username, _, _ := db.GetUserByID(userID)
-	user := &User{id: userID, username: username}
+	creds, _ := db.GetUserCredentials(userID)
+	user := &User{id: userID, username: username, credentials: creds}
 
 	fakeReq, _ := http.NewRequest("POST", "/", io.NopCloser(bytes.NewReader([]byte(req.CredentialJson))))
+	fakeReq.Header.Set("Content-Type", "application/json")
 	parsedResponse, err := protocol.ParseCredentialRequestResponse(fakeReq)
 	if err != nil {
 		res.Code = http.StatusBadRequest
@@ -263,13 +277,17 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = getWebAuthn().ValidateLogin(user, *session, parsedResponse)
+	credential, err := getWebAuthn().ValidateLogin(user, *session, parsedResponse)
 	if err != nil {
+		log.Printf("[WebAuthn] 验证失败! TraceID: %s, UserID: %d, Error: %v", getTraceID(r), userID, err)
 		res.Code = http.StatusUnauthorized
 		res.Msg = "2FA 验证失败"
 		sendProto(w, res)
 		return
 	}
+
+	// 成功验证后更新计数器
+	_ = db.UpdateCredentialSignCount(credential.ID, credential.Authenticator.SignCount)
 
 	setSessionCookie(w, userID, username)
 	res.Code = http.StatusOK
@@ -278,16 +296,32 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func setSessionCookie(w http.ResponseWriter, id int, username string) {
-	http.SetCookie(w, &http.Cookie{
+	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+	isSecure := strings.HasPrefix(allowedOrigin, "https://")
+
+	cookie := &http.Cookie{
 		Name:     "uip_session",
 		Value:    fmt.Sprintf("sess_%d_%s", id, username),
 		Path:     "/",
 		HttpOnly: true,
 		MaxAge:   86400,
-	})
-	http.SetCookie(w, &http.Cookie{
+	}
+
+	if isSecure {
+		cookie.Secure = true
+		cookie.SameSite = http.SameSiteNoneMode
+	}
+
+	http.SetCookie(w, cookie)
+
+	tempCookie := &http.Cookie{
 		Name:   "uip_temp_auth",
 		MaxAge: -1,
 		Path:   "/",
-	})
+	}
+	if isSecure {
+		tempCookie.Secure = true
+		tempCookie.SameSite = http.SameSiteNoneMode
+	}
+	http.SetCookie(w, tempCookie)
 }

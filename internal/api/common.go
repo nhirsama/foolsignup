@@ -65,7 +65,17 @@ func readProto(r *http.Request, msg proto.Message) error {
 // sendProto 序列化 Protobuf 消息并发送二进制响应。
 func sendProto(w http.ResponseWriter, msg proto.Message) {
 	w.Header().Set("Content-Type", "application/x-protobuf")
-	w.WriteHeader(http.StatusOK)
+
+	// 尝试从消息中获取 code 字段（通过反射或简单判断）
+	statusCode := http.StatusOK
+	if m, ok := msg.(interface{ GetCode() int32 }); ok {
+		c := int(m.GetCode())
+		if c >= 400 && c < 600 {
+			statusCode = c
+		}
+	}
+
+	w.WriteHeader(statusCode)
 	data, err := proto.Marshal(msg)
 	if err == nil {
 		w.Write(data)

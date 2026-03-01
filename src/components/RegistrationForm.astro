@@ -1,5 +1,11 @@
 <div class="login-container">
     <div class="login-card">
+        <div id="alert-container" class="alert-container">
+            <div id="error-alert" class="alert error hidden">
+                <span id="error-text"></span>
+            </div>
+            <div id="success-alert" class="alert success hidden"></div>
+        </div>
         <div id="auth-view">
             <div class="login-header">
                 <h2 id="form-title">账号注册</h2>
@@ -43,13 +49,6 @@
                     <input type="password" id="confirm-password" name="confirm-password" placeholder="请再次输入您的密码" />
                 </div>
                 
-                <div id="alert-container" class="alert-container">
-                    <div id="error-alert" class="alert error hidden">
-                        <span id="error-text"></span>
-                    </div>
-                    <div id="success-alert" class="alert success hidden"></div>
-                </div>
-
                 <button type="submit" id="submit-btn" class="primary-button">确认提交</button>
                 
                 <div class="form-toggle">
@@ -220,6 +219,7 @@
         let tempToken = "";
         let isSetup = false;
         const apiUrl = import.meta.env.PUBLIC_API_URL || '';
+        const traceId = Math.random().toString(36).substring(2, 15);
 
         const dashboardView = document.getElementById('dashboard-view');
         const dashUsername = document.getElementById('dash-username');
@@ -227,7 +227,7 @@
 
         async function checkLogin() {
             try {
-                const res = await fetch(`${apiUrl}/api/me`, { credentials: 'include' });
+                const res = await fetch(`${apiUrl}/api/me`, { credentials: 'include', headers: { 'X-Trace-Id': traceId } });
                 if (res.status === 200) {
                     const buffer = await res.arrayBuffer();
                     const result = authpb.GetMeResponse.decode(new Uint8Array(buffer));
@@ -242,7 +242,7 @@
         checkLogin();
 
         logoutBtn.addEventListener('click', async () => {
-            await fetch(`${apiUrl}/api/logout`, { credentials: 'include' });
+            await fetch(`${apiUrl}/api/logout`, { credentials: 'include', headers: { 'X-Trace-Id': traceId } });
             location.reload();
         });
 
@@ -340,7 +340,7 @@
                 const req = authpb.SendEmailCodeRequest.create({ email: emailInput.value, captchaKey: key, captchaValue: val });
                 const res = await fetch(`${apiUrl}/api/send-code`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-protobuf' },
+                    headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
                     body: authpb.SendEmailCodeRequest.encode(req).finish()
                 });
                 const buffer = await res.arrayBuffer();
@@ -401,7 +401,7 @@
 
                 const response = await fetch(`${apiUrl}${isLoginMode ? '/api/login' : '/api/register'}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/x-protobuf' },
+                    headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
                     body: body,
                     credentials: 'include'
                 });
@@ -438,48 +438,93 @@
         });
 
         twofaBtn.addEventListener('click', async () => {
+            console.log("WebAuthn start. Mode:", isSetup ? "Registration" : "Login");
             loading.classList.remove('hidden');
             try {
                 if (isSetup) {
-                    const res = await fetch(`${apiUrl}/api/webauthn/register/options`, { credentials: 'include' });
-                    const buffer = await res.arrayBuffer();
-                    const json = authpb.GetWebAuthnRegistrationOptionsResponse.decode(new Uint8Array(buffer));
+                    console.log("Fetching registration options...");
+                    const res = await fetch(`${apiUrl}/api/webauthn/register/options`, { 
+                        credentials: 'include',
+                        headers: { 'X-Trace-Id': traceId }
+                    });
+                    const json = await handleFetchResponse(res, authpb.GetWebAuthnRegistrationOptionsResponse);
+                    console.log("Registration options:", json);
+                    
+                    console.log("Calling WebAuthn create...");
                     const credential = await create(JSON.parse(json.optionsJson));
+                    console.log("Credential created:", credential);
 
+                    console.log("Verifying registration...");
                     const vRes = await fetch(`${apiUrl}/api/webauthn/register/verify`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/x-protobuf' },
+                        headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
                         body: authpb.VerifyWebAuthnRegistrationRequest.encode({ credentialJson: JSON.stringify(credential) }).finish(),
                         credentials: 'include'
                     });
-                    const vBuffer = await vRes.arrayBuffer();
-                    const vResult = authpb.VerifyWebAuthnRegistrationResponse.decode(new Uint8Array(vBuffer));
-                    if (vResult.code === 200) location.reload(); else showError(vResult.msg);
+                    const vResult = await handleFetchResponse(vRes, authpb.VerifyWebAuthnRegistrationResponse);
+                    console.log("Verify result:", vResult);
+                    if (vResult.code === 200) {
+                        console.log("Registration successful, reloading...");
+                        location.reload();
+                    } else {
+                        showError(vResult.msg || "注册验证失败");
+                    }
                 } else {
+                    console.log("Fetching login options...");
                     const res = await fetch(`${apiUrl}/api/webauthn/login/options`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/x-protobuf' },
+                        headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
                         body: authpb.GetWebAuthnLoginOptionsRequest.encode({ tempToken }).finish(),
                         credentials: 'include'
                     });
-                    const buffer = await res.arrayBuffer();
-                    const json = authpb.GetWebAuthnLoginOptionsResponse.decode(new Uint8Array(buffer));
+                    const json = await handleFetchResponse(res, authpb.GetWebAuthnLoginOptionsResponse);
+                    console.log("Login options:", json);
+                    
+                    console.log("Calling WebAuthn get...");
                     const credential = await get(JSON.parse(json.optionsJson));
+                    console.log("Credential retrieved:", credential);
 
+                    console.log("Verifying login...");
                     const vRes = await fetch(`${apiUrl}/api/webauthn/login/verify`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/x-protobuf' },
+                        headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
                         body: authpb.VerifyWebAuthnLoginRequest.encode({ tempToken, credentialJson: JSON.stringify(credential) }).finish(),
                         credentials: 'include'
                     });
-                    const vBuffer = await vRes.arrayBuffer();
-                    const vResult = authpb.VerifyWebAuthnLoginResponse.decode(new Uint8Array(vBuffer));
-                    if (vResult.code === 200) location.reload(); else showError(vResult.msg);
+                    const vResult = await handleFetchResponse(vRes, authpb.VerifyWebAuthnLoginResponse);
+                    console.log("Verify result:", vResult);
+                    if (vResult.code === 200) {
+                        console.log("Login successful, reloading...");
+                        location.reload();
+                    } else {
+                        showError(vResult.msg || "登录验证失败");
+                    }
                 }
-            } catch (e) { showError("验证取消或失败"); console.error(e); } finally { loading.classList.add('hidden'); }
+            } catch (e) { 
+                console.error("WebAuthn Error Details:", e);
+                showError("验证出错: " + (e.message || "未知错误")); 
+            } finally { 
+                loading.classList.add('hidden'); 
+            }
         });
 
-        function showError(msg) { errorText.textContent = msg; errorAlert.classList.remove('hidden'); }
+        function showError(msg) { 
+            console.error("UI Error Display:", msg);
+            loading.classList.add('hidden');
+            errorText.textContent = msg; 
+            errorAlert.classList.remove('hidden'); 
+            successAlert.classList.add('hidden');
+        }
+
+        async function handleFetchResponse(response, responseClass) {
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`请求失败 (${response.status}): ${text || '未知错误'}`);
+            }
+            const buffer = await response.arrayBuffer();
+            return responseClass.decode(new Uint8Array(buffer));
+        }
+
         function showSuccess(msg) { successAlert.textContent = msg; successAlert.classList.remove('hidden'); }
         sendCodeBtn.addEventListener('click', () => { if (emailInput.value) { hideAlerts(); fetchNewCaptcha(); captchaModal.classList.remove('hidden'); renderGrid(); } else showError("请输入邮箱"); });
     });
