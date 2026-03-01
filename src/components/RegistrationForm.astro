@@ -27,7 +27,11 @@
 
                 <div class="form-item hidden" id="age-field">
                     <label for="age">年龄</label>
-                    <input type="number" id="age" name="age" step="1" placeholder="请输入您的年龄" />
+                    <div class="stepper-input">
+                        <button type="button" class="step-btn" id="age-minus">-</button>
+                        <input type="number" id="age" name="age" step="1" value="" placeholder="请选择年龄" readonly />
+                        <button type="button" class="step-btn" id="age-plus">+</button>
+                    </div>
                 </div>
 
                 <div class="form-item">
@@ -102,7 +106,9 @@
             <div class="captcha-main-area">
                 <div id="captcha-grid" class="captcha-grid"></div>
                 <div class="captcha-slider-box">
+                    <button type="button" class="slider-adjust-btn" id="slider-up">▲</button>
                     <input type="range" id="captcha-nav-slider" min="0" max="249995" value="0" step="1" />
+                    <button type="button" class="slider-adjust-btn" id="slider-down">▼</button>
                 </div>
             </div>
         </div>
@@ -133,7 +139,15 @@
     
     input { width: 100%; height: 38px; border: 1px solid var(--border); padding: 0 12px; border-radius: 4px; font-size: 14px; transition: all 0.2s; box-sizing: border-box; }
     input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(22,119,255,0.1); }
-    input[readonly] { background: #f5f5f5; color: #bfbfbf; cursor: not-allowed; }
+    input[readonly] { background: #f5f5f5; color: #595959; cursor: default; }
+
+    /* 步进器样式 */
+    .stepper-input { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+    .stepper-input input { border: none; text-align: center; padding: 0; flex: 1; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+    .stepper-input input:focus { box-shadow: none; }
+    .step-btn { width: 40px; height: 38px; background: #fafafa; border: none; cursor: pointer; color: #595959; font-size: 18px; transition: background 0.2s; }
+    .step-btn:hover { background: #f0f0f0; color: var(--primary); }
+    .step-btn:active { background: #e8e8e8; }
 
     .input-with-action { display: flex; gap: 8px; }
     .input-with-action input { flex: 1; }
@@ -157,28 +171,30 @@
     .alert.success { background: #f6ffed; color: var(--success); border-color: #b7eb8f; }
     .hidden { display: none !important; }
 
+    /* 验证码弹窗优化 */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.45); z-index: 2000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
     .captcha-popup { background: #fff; border-radius: 8px; width: 360px; box-shadow: 0 15px 40px rgba(0,0,0,0.18); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #e8e8e8; }
     .captcha-title { padding: 14px 20px; background: #fff; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 15px; color: var(--text); }
     .close-x { background: none; border: none; color: #bfbfbf; font-size: 22px; cursor: pointer; transition: color 0.2s; }
-    .close-x:hover { color: var(--error); }
-    .captcha-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
     .captcha-header { padding: 20px; background: #fafafa; border-bottom: 1px solid #f0f0f0; display: flex; flex-direction: column; align-items: center; }
-    .captcha-image-box { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; position: relative; width: 100%; justify-content: center; }
-    #captcha-img { height: 48px; border: 1px solid #d9d9d9; border-radius: 4px; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .captcha-image-box { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; width: 100%; justify-content: center; }
+    #captcha-img { height: 48px; border: 1px solid #d9d9d9; border-radius: 4px; background: #fff; }
     .refresh-btn { background: #fff; border: 1px solid #d9d9d9; color: var(--text-subtle); cursor: pointer; font-size: 18px; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-    .refresh-btn:hover { color: var(--primary); border-color: var(--primary); box-shadow: 0 2px 6px rgba(22,119,255,0.15); }
+    .refresh-btn:hover { color: var(--primary); border-color: var(--primary); }
     .captcha-guide { font-size: 12px; color: #8c8c8c; text-align: center; }
     .captcha-main-area { flex: 1; display: flex; padding: 16px; gap: 16px; overflow: hidden; background: #fff; }
     .captcha-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(5, 1fr); gap: 8px; }
-    .captcha-btn { background: #fff; border: 1px solid #f0f0f0; border-radius: 4px; font-size: 13px; color: #595959; cursor: pointer; font-family: 'SF Mono', 'Roboto Mono', monospace; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-    .captcha-btn:hover { border-color: var(--primary); color: var(--primary); background: rgba(22,119,255,0.02); transform: translateY(-1px); }
-    .captcha-slider-box { width: 24px; display: flex; justify-content: center; padding: 4px 0; }
-    #captcha-nav-slider { -webkit-appearance: none; width: 6px; height: 100%; background: #f0f0f0; border-radius: 3px; outline: none; writing-mode: bt-lr; -webkit-appearance: slider-vertical; appearance: slider-vertical; transform: rotate(180deg); }
+    .captcha-btn { background: #fff; border: 1px solid #f0f0f0; border-radius: 4px; font-size: 13px; color: #595959; cursor: pointer; font-family: 'Roboto Mono', monospace; display: flex; align-items: center; justify-content: center; }
+    .captcha-btn:hover { border-color: var(--primary); color: var(--primary); background: rgba(22,119,255,0.02); }
+    
+    .captcha-slider-box { width: 28px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 2px 0; }
+    .slider-adjust-btn { width: 24px; height: 24px; background: #fff; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 10px; cursor: pointer; color: #8c8c8c; display: flex; align-items: center; justify-content: center; }
+    .slider-adjust-btn:hover { border-color: var(--primary); color: var(--primary); }
+    #captcha-nav-slider { -webkit-appearance: none; width: 6px; flex: 1; background: #f0f0f0; border-radius: 3px; outline: none; writing-mode: bt-lr; -webkit-appearance: slider-vertical; appearance: slider-vertical; transform: rotate(180deg); }
     #captcha-nav-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: #fff; border: 2px solid var(--primary); border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+    
     .captcha-footer { padding: 12px 20px; border-top: 1px solid #f0f0f0; text-align: center; background: #fafafa; }
-    .cancel-btn { width: 80px; height: 32px; background: #fff; border: 1px solid #d9d9d9; border-radius: 4px; color: #595959; cursor: pointer; font-size: 13px; transition: all 0.2s; }
-    .cancel-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .cancel-btn { width: 80px; height: 32px; background: #fff; border: 1px solid #d9d9d9; border-radius: 4px; color: #595959; cursor: pointer; font-size: 13px; }
 
     .spinner { width: 28px; height: 28px; border: 2px solid #f3f3f3; border-top: 2px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -222,7 +238,7 @@
         const errorText = document.getElementById('error-text');
         const loading = document.getElementById('loading-overlay');
 
-        let isLoginMode = true;
+        let isLoginMode = true; 
         let tempToken = "";
         let isSetup = false;
         const apiUrl = import.meta.env.PUBLIC_API_URL || '';
@@ -231,6 +247,33 @@
         const dashboardView = document.getElementById('dashboard-view');
         const dashUsername = document.getElementById('dash-username');
         const logoutBtn = document.getElementById('logout-btn');
+
+        // 年龄步进器逻辑：移除正数限制，允许负数
+        document.getElementById('age-minus').addEventListener('click', () => {
+            const val = parseInt(ageInput.value) || 0;
+            ageInput.value = (val - 1).toString();
+        });
+        document.getElementById('age-plus').addEventListener('click', () => {
+            const val = parseInt(ageInput.value) || 0;
+            ageInput.value = (val + 1).toString();
+        });
+
+        // 验证码滑动条微调逻辑
+        document.getElementById('slider-up').addEventListener('click', () => {
+            const val = parseInt(captchaSlider.value);
+            if (val > 0) {
+                captchaSlider.value = (val - 1).toString();
+                renderGrid();
+            }
+        });
+        document.getElementById('slider-down').addEventListener('click', () => {
+            const val = parseInt(captchaSlider.value);
+            const max = parseInt(captchaSlider.max);
+            if (val < max) {
+                captchaSlider.value = (val + 1).toString();
+                renderGrid();
+            }
+        });
 
         async function checkLogin() {
             try {
@@ -277,6 +320,7 @@
                 userInput.value = `User_${Math.floor(Math.random()*899999+100000)}`;
                 userInput.readOnly = true;
                 userInput.tabIndex = -1;
+                ageInput.value = ""; // 移除默认值 18
             } else {
                 userInput.value = "";
                 userInput.readOnly = false;
@@ -295,12 +339,6 @@
         backToLogin.addEventListener('click', (e) => {
             e.preventDefault();
             updateUI();
-        });
-
-        ageInput.addEventListener('keydown', (e) => {
-            if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && e.key !== "Tab") {
-                e.preventDefault();
-            }
         });
 
         function renderGrid() {
@@ -492,7 +530,6 @@
         function showError(msg, code = 0, tid = "") { 
             loading.classList.add('hidden');
             let displayMsg = msg;
-            // 只有当是系统错误 (>=500) 或未知错误 (code=0且有tid) 时才显示 Trace ID
             if (tid && (code >= 500 || code === 0) && !msg.includes("请输入") && !msg.includes("一致")) {
                 displayMsg += ` (ID: ${tid})`;
             }

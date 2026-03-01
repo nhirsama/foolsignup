@@ -156,7 +156,7 @@ func GetVerificationCode(email string) (string, bool) {
 
 // SaveVerificationCode 存储一个新的验证码（支持多个并存）。
 func SaveVerificationCode(email, code string) error {
-	expiresAt := time.Now().Add(10 * time.Minute)
+	expiresAt := time.Now().Add(2 * time.Hour)
 	query := "INSERT INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?) ON CONFLICT(email, code) DO UPDATE SET expires_at = excluded.expires_at"
 	_, err := Instance.Exec(query, email, code, expiresAt)
 	return err
