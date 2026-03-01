@@ -19,11 +19,12 @@
                         <button type="button" id="send-code-btn" class="inline-button">发送验证码</button>
                     </div>
                 </div>
+<!-- 注册特有字段：验证码 -->
+<div class="form-item" id="code-field">
+    <label for="code">PoW 验证码</label>
+    <input type="text" id="code" name="code" placeholder="请输入证明字符串" />
+</div>
 
-                <div class="form-item" id="code-field">
-                    <label for="code">邮箱验证码</label>
-                    <input type="text" id="code" name="code" placeholder="6位验证码" maxlength="6" />
-                </div>
 <!-- 注册特有字段：年龄 -->
 <div class="form-item" id="age-field">
     <label for="age">年龄</label>
@@ -315,11 +316,28 @@
             } catch (e) { showError("发送失败"); } finally { loading.classList.add('hidden'); }
         }
 
+        async function verifyPoW(input) {
+            const msgUint8 = new TextEncoder().encode(input);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            return hashHex.startsWith('00000');
+        }
+
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             hideAlerts();
             const formData = new FormData(form);
             const data = Object.fromEntries(formData.entries());
+
+            if (!isLoginMode) {
+                // 前端 PoW 校验
+                const isValid = await verifyPoW(data.code as string);
+                if (!isValid) {
+                    showError("算力证明无效：哈希摘要未达到预设的难度目标 (Difficulty requirement)");
+                    return;
+                }
+            }
 
             loading.classList.remove('hidden');
             try {

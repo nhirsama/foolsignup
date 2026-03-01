@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"foolsignup/internal/db"
@@ -27,11 +28,20 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. 验证码校验（包含防爆破延迟）
-	if !db.VerifyCode(req.Email, req.Code) {
+	// 1. PoW 挑战校验
+	challenge, ok := db.GetVerificationCode(req.Email)
+	if !ok {
+		res.Code = http.StatusBadRequest
+		res.Msg = "验证码已过期"
+		sendProto(w, res)
+		return
+	}
+
+	// 校验：输入必须以 Challenge 开头，且满足哈希条件
+	if !strings.HasPrefix(req.Code, challenge) || !VerifyPoW(req.Code) {
 		time.Sleep(3 * time.Second)
 		res.Code = http.StatusBadRequest
-		res.Msg = "验证码错误或已过期"
+		res.Msg = "PoW 验证码校验未通过，请检查字符串与哈希摘要"
 		sendProto(w, res)
 		return
 	}

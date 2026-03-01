@@ -132,6 +132,14 @@ func Has2FA(userID int) bool {
 	return count > 0
 }
 
+// GetVerificationCode 获取邮箱对应的有效验证码。
+func GetVerificationCode(email string) (string, bool) {
+	var code string
+	query := "SELECT code FROM verification_codes WHERE email = ? AND expires_at > ? LIMIT 1"
+	err := Instance.QueryRow(query, email, time.Now()).Scan(&code)
+	return code, err == nil
+}
+
 // SaveVerificationCode 存储一个新的验证码（支持多个并存）。
 func SaveVerificationCode(email, code string) error {
 	expiresAt := time.Now().Add(10 * time.Minute)
