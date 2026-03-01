@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"foolsignup-api/internal/db"
-	authpb "foolsignup-api/internal/pb/auth/v1"
+	"foolsignup/internal/db"
+	authpb "foolsignup/internal/pb/auth/v1"
 )
 
 // HandleLogin 处理用户登录（第一阶段：密码验证）。

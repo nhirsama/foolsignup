@@ -6,9 +6,9 @@ import (
 	"math/big"
 	"net/http"
 
-	"foolsignup-api/internal/db"
-	"foolsignup-api/internal/mail"
-	authpb "foolsignup-api/internal/pb/auth/v1"
+	"foolsignup/internal/db"
+	"foolsignup/internal/mail"
+	authpb "foolsignup/internal/pb/auth/v1"
 )
 
 // HandleSendCode 生成并发送验证码。

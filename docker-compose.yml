@@ -1,0 +1,18 @@
+services:
+  api:
+    build: .
+    container_name: foolsignup-api
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/app/data
+    environment:
+      # 服务基础配置
+      - FOOL_SIGNUP_PORT=3001
+      - ALLOWED_ORIGIN=http://localhost:4321 # 生产环境请修改为 Cloudflare Pages 域名
+
+      # 邮件服务配置 (请根据实际情况填写)
+      - MAIL_API_ENDPOINT=
+      - MAIL_FROM=
+      - MAIL_API_KEY=
+    restart: always

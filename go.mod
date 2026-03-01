@@ -1,4 +1,4 @@
-module foolsignup-api
+module foolsignup
 
 go 1.25.0
 

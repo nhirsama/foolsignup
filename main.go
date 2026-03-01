@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"os"
 
-	"foolsignup-api/internal/api"
-	"foolsignup-api/internal/db"
+	"foolsignup/internal/api"
+	"foolsignup/internal/db"
 )
 
 func main() {

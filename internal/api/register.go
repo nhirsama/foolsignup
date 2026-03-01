@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"foolsignup-api/internal/db"
-	authpb "foolsignup-api/internal/pb/auth/v1"
+	"foolsignup/internal/db"
+	authpb "foolsignup/internal/pb/auth/v1"
 )
 
 // HandleRegister 处理用户注册。

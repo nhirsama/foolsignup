@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"sync"
 
-	"foolsignup-api/internal/db"
-	authpb "foolsignup-api/internal/pb/auth/v1"
+	"foolsignup/internal/db"
+	authpb "foolsignup/internal/pb/auth/v1"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"

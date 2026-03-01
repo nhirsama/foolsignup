@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	authpb "foolsignup-api/internal/pb/auth/v1"
+	authpb "foolsignup/internal/pb/auth/v1"
 
 	"github.com/mojocn/base64Captcha"
 )

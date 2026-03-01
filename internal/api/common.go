@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
@@ -42,7 +43,11 @@ func setupCORSAndMethod(w http.ResponseWriter, r *http.Request, method string) b
 }
 
 func setCorsHeaders(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:4321")
+	origin := os.Getenv("ALLOWED_ORIGIN")
+	if origin == "" {
+		origin = "http://localhost:4321"
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Trace-Id")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
