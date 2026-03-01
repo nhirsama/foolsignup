@@ -52,9 +52,14 @@ func InitDB() {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE TABLE IF NOT EXISTS verification_codes (
-			email TEXT PRIMARY KEY,
+			email TEXT NOT NULL,
 			code TEXT NOT NULL,
-			expires_at DATETIME NOT NULL
+			expires_at DATETIME NOT NULL,
+			PRIMARY KEY (email, code)
+		);
+		CREATE TABLE IF NOT EXISTS registration_attempts (
+			email TEXT PRIMARY KEY,
+			count INTEGER DEFAULT 0
 		);`
 
 		if _, err := Instance.Exec(schema); err != nil {
@@ -69,27 +74,27 @@ func InitDB() {
 	})
 }
 
-// SaveVerificationCode stores a verification code for a given email.
+// SaveVerificationCode 存储一个新的验证码（支持多个并存）。
 func SaveVerificationCode(email, code string) error {
 	expiresAt := time.Now().Add(10 * time.Minute)
-	query := "INSERT OR REPLACE INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?)"
+	// 使用 INSERT 并处理重复（如果完全一样则更新过期时间）
+	query := "INSERT INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?) ON CONFLICT(email, code) DO UPDATE SET expires_at = excluded.expires_at"
 	_, err := Instance.Exec(query, email, code, expiresAt)
 	return err
 }
 
-// VerifyCode checks if a verification code is valid for a given email.
+// VerifyCode 检查邮箱对应的任意一个未过期的验证码是否匹配。
 func VerifyCode(email, code string) bool {
-	var storedCode string
-	var expiresAt time.Time
-	query := "SELECT code, expires_at FROM verification_codes WHERE email = ?"
-	err := Instance.QueryRow(query, email).Scan(&storedCode, &expiresAt)
+	var count int
+	query := "SELECT COUNT(*) FROM verification_codes WHERE email = ? AND code = ? AND expires_at > DATETIME('now')"
+	// 注意：SQLite 的 DATETIME('now') 可能有时区问题，建议使用 Go 传入时间戳或统一使用 UTC。
+	// 这里为了简单，我们传入当前时间。
+	query = "SELECT COUNT(*) FROM verification_codes WHERE email = ? AND code = ? AND expires_at > ?"
+	err := Instance.QueryRow(query, email, code, time.Now()).Scan(&count)
 	if err != nil {
 		return false
 	}
-	if time.Now().After(expiresAt) {
-		return false
-	}
-	return storedCode == code
+	return count > 0
 }
 
 func seedData() {
@@ -106,6 +111,24 @@ func seedData() {
 		query := "INSERT INTO users (username, email, age, password_hash, plain_password) VALUES (?, ?, ?, ?, ?)"
 		_, _ = Instance.Exec(query, username, fmt.Sprintf("entity_%d@internal.sys", i), ages[i]+1, string(hash), pwd)
 	}
+}
+
+// GetRegistrationCount 返回某个邮箱尝试注册的次数。
+func GetRegistrationCount(email string) int {
+	var count int
+	query := "SELECT count FROM registration_attempts WHERE email = ?"
+	err := Instance.QueryRow(query, email).Scan(&count)
+	if err != nil {
+		return 0
+	}
+	return count
+}
+
+// IncrementRegistrationCount 增加某个邮箱的尝试注册次数。
+func IncrementRegistrationCount(email string) error {
+	query := "INSERT INTO registration_attempts (email, count) VALUES (?, 1) ON CONFLICT(email) DO UPDATE SET count = count + 1"
+	_, err := Instance.Exec(query, email)
+	return err
 }
 
 // CheckConflict checks if user details conflict with existing records.

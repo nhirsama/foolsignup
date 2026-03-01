@@ -7,36 +7,56 @@
             </div>
 
             <form id="uip-form">
+                <!-- 用户名：注册模式下只读并自动生成，登录模式下可编辑 -->
                 <div class="form-item">
-                    <label>用户名</label>
+                    <label for="username">用户名</label>
                     <input type="text" id="username" name="username" readonly tabindex="-1" />
                 </div>
+
+                <!-- 注册特有字段：邮箱 -->
                 <div class="form-item" id="email-field">
-                    <label>邮箱地址</label>
+                    <label for="email">邮箱地址</label>
                     <div class="input-with-action">
-                        <input type="email" id="email" name="email" placeholder="请输入您的电子邮箱" />
+                        <input type="email" id="email" name="email" placeholder="请输入电子邮箱" />
                         <button type="button" id="send-code-btn" class="inline-button">发送验证码</button>
                     </div>
                 </div>
+
+                <!-- 注册特有字段：验证码 -->
                 <div class="form-item" id="code-field">
-                    <label>邮箱验证码</label>
+                    <label for="code">邮箱验证码</label>
                     <input type="text" id="code" name="code" placeholder="6位验证码" maxlength="6" />
                 </div>
+
+                <!-- 注册特有字段：年龄 -->
                 <div class="form-item" id="age-field">
-                    <label>年龄</label>
-                    <input type="number" id="age" name="age" placeholder="请填写您的实足年龄" />
+                    <label for="age">年龄</label>
+                    <input type="number" id="age" name="age" value="18" step="1" id="age-input" />
                 </div>
+
+                <!-- 通用字段：密码 -->
                 <div class="form-item">
-                    <label>密码</label>
+                    <label for="password">密码</label>
                     <input type="password" id="password" name="password" placeholder="请输入您的密码" required />
                 </div>
+                
+                <!-- 提示区域：位置固定，避免布局跳动 -->
+                <div id="alert-container" class="alert-container">
+                    <div id="error-alert" class="alert error hidden">
+                        <span id="error-text"></span>
+                    </div>
+                    <div id="success-alert" class="alert success hidden"></div>
+                </div>
+
                 <button type="submit" id="submit-btn" class="primary-button">确认提交</button>
+                
                 <div class="form-toggle">
-                    <a href="#" id="toggle-link">已有账号？切换到登录</a>
+                    <a href="#" id="toggle-link">已有账号？点击登录</a>
                 </div>
             </form>
         </div>
 
+        <!-- 登录成功后的 Dashboard 保持风格一致 -->
         <div id="dashboard-view" class="hidden">
             <div class="dash-header">
                 <div class="user-avatar">U</div>
@@ -49,42 +69,124 @@
         </div>
 
         <div id="loading-overlay" class="hidden"><div class="spinner"></div></div>
-        <div id="error-alert" class="hidden"><span class="error-icon">!</span><span id="error-text"></span></div>
-        <div id="success-alert" class="hidden" style="margin-top:20px; color:#52c41a; font-size:14px; text-align:center;"></div>
+    </div>
+</div>
+
+<!-- 人机验证保持不变 -->
+<div id="captcha-modal" class="modal-overlay hidden">
+    <div class="captcha-popup">
+        <div class="captcha-title">
+            <span>安全验证</span>
+            <button id="close-captcha-x" class="close-x">&times;</button>
+        </div>
+        <div class="captcha-body">
+            <div class="captcha-header">
+                <div class="captcha-image-box">
+                    <img id="captcha-img" src="" alt="CAPTCHA" />
+                    <button id="refresh-captcha" class="refresh-btn" title="刷新验证码">⟳</button>
+                </div>
+                <div class="captcha-guide">请通过滑块定位并点击与图片一致的数字：</div>
+            </div>
+            <div class="captcha-main-area">
+                <div id="captcha-grid" class="captcha-grid"></div>
+                <div class="captcha-slider-box">
+                    <input type="range" id="captcha-nav-slider" min="0" max="249995" value="0" step="1" />
+                </div>
+            </div>
+        </div>
+        <div class="captcha-footer">
+            <button type="button" id="close-captcha-btn" class="cancel-btn">取消</button>
+        </div>
     </div>
 </div>
 
 <style>
-    .login-container { width: 100%; max-width: 440px; margin: 12vh auto; }
-    .login-card { background: #fff; padding: 48px 40px; border: 1px solid #f0f0f0; border-radius: 4px; box-shadow: 0 6px 16px rgba(0,0,0,0.08); }
-    .hidden { display: none !important; }
-    input { width: 100%; height: 40px; border: 1px solid #d9d9d9; padding: 0 10px; margin-bottom: 15px; box-sizing: border-box; }
-    input[readonly] { background: #f5f5f5; color: #bfbfbf; }
-    
-    .input-with-action { display: flex; gap: 8px; }
-    .input-with-action input { flex: 1; margin-bottom: 0; }
-    
-    .inline-button { height: 40px; padding: 0 12px; background: #fff; border: 1px solid #d9d9d9; font-size: 13px; cursor: pointer; white-space: nowrap; }
-    .inline-button:disabled { color: #bfbfbf; cursor: not-allowed; }
+    :root {
+        --primary: #1677ff;
+        --error: #ff4d4f;
+        --success: #52c41a;
+        --border: #d9d9d9;
+        --text: #262626;
+        --text-subtle: #8c8c8c;
+    }
 
-    .primary-button { width: 100%; height: 40px; background: #1677ff; color: #fff; border: none; cursor: pointer; font-weight: 500; margin-top: 10px; }
-    .secondary-button { width: 100%; height: 40px; background: #fff; border: 1px solid #d9d9d9; cursor: pointer; margin-top: 20px; }
+    .login-container { width: 100%; max-width: 400px; margin: 12vh auto; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .login-card { background: #fff; padding: 32px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); position: relative; border: 1px solid #f0f0f0; }
     
-    .spinner { width: 24px; height: 24px; border: 2px solid #f3f3f3; border-top: 2px solid #1677ff; border-radius: 50%; animation: spin 1s linear infinite; display: inline-block; }
+    .login-header h2 { margin: 0 0 4px 0; font-size: 22px; color: var(--text); }
+    .login-header p { margin: 0 0 28px 0; color: var(--text-subtle); font-size: 13px; }
+
+    .form-item { margin-bottom: 16px; }
+    .form-item label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text); }
+    
+    input { width: 100%; height: 38px; border: 1px solid var(--border); padding: 0 12px; border-radius: 4px; font-size: 14px; transition: all 0.2s; box-sizing: border-box; }
+    input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(22,119,255,0.1); }
+    input[readonly] { background: #f5f5f5; color: #bfbfbf; cursor: not-allowed; }
+
+    .input-with-action { display: flex; gap: 8px; }
+    .input-with-action input { flex: 1; }
+    
+    .inline-button { flex-shrink: 0; white-space: nowrap; height: 38px; padding: 0 12px; background: #fff; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; cursor: pointer; color: #595959; transition: all 0.2s; }
+    .inline-button:hover:not(:disabled) { color: var(--primary); border-color: var(--primary); }
+    .inline-button:disabled { color: #bfbfbf; background: #f5f5f5; cursor: not-allowed; }
+
+    .primary-button { width: 100%; height: 40px; background: var(--primary); color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 15px; margin-top: 4px; transition: background 0.2s; }
+    .primary-button:hover { background: #4096ff; }
+    
+    .secondary-button { width: 100%; height: 40px; background: #fff; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; margin-top: 20px; font-size: 14px; color: #595959; }
+
+    .form-toggle { margin-top: 16px; text-align: center; }
+    .form-toggle a { font-size: 13px; color: var(--primary); text-decoration: none; }
+    .form-toggle a:hover { text-decoration: underline; }
+
+    /* 提示区域 */
+    .alert-container { min-height: 48px; display: flex; align-items: center; justify-content: center; }
+    .alert { width: 100%; padding: 8px 12px; border-radius: 4px; font-size: 13px; text-align: center; border: 1px solid transparent; }
+    .alert.error { background: #fff2f0; color: var(--error); border-color: #ffccc7; }
+    .alert.success { background: #f6ffed; color: var(--success); border-color: #b7eb8f; }
+    .hidden { display: none !important; }
+
+    /* CAPTCHA 样式保持极简 */
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.45); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+    .captcha-popup { background: #fff; border-radius: 6px; width: 340px; height: 420px; box-shadow: 0 12px 32px rgba(0,0,0,0.15); display: flex; flex-direction: column; overflow: hidden; }
+    .captcha-title { padding: 10px 16px; background: #fff; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; }
+    .close-x { background: none; border: none; color: #8c8c8c; font-size: 20px; cursor: pointer; }
+    .captcha-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .captcha-header { padding: 16px; background: #fafafa; border-bottom: 1px solid #f0f0f0; }
+    .captcha-image-box { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    #captcha-img { height: 40px; border: 1px solid #eee; border-radius: 2px; }
+    .refresh-btn { background: none; border: none; color: var(--primary); cursor: pointer; font-size: 18px; }
+    .captcha-guide { font-size: 11px; color: #8c8c8c; }
+    .captcha-main-area { flex: 1; display: flex; padding: 12px; gap: 12px; overflow: hidden; }
+    .captcha-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(5, 1fr); gap: 6px; }
+    .captcha-btn { background: #fff; border: 1px solid #f0f0f0; border-radius: 2px; font-size: 12px; color: #595959; cursor: pointer; font-family: 'SF Mono', monospace; display: flex; align-items: center; justify-content: center; }
+    .captcha-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .captcha-slider-box { width: 20px; display: flex; justify-content: center; }
+    #captcha-nav-slider { -webkit-appearance: none; width: 4px; height: 100%; background: #e8e8e8; border-radius: 2px; outline: none; writing-mode: bt-lr; -webkit-appearance: slider-vertical; appearance: slider-vertical; transform: rotate(180deg); }
+    #captcha-nav-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #fff; border: 2px solid var(--primary); border-radius: 50%; cursor: pointer; }
+    .captcha-footer { padding: 8px; border-top: 1px solid #f0f0f0; text-align: center; }
+    .cancel-btn { background: none; border: none; color: #bfbfbf; cursor: pointer; font-size: 12px; }
+
+    .spinner { width: 28px; height: 28px; border: 2px solid #f3f3f3; border-top: 2px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    
-    #error-alert { background: #fff2f0; border: 1px solid #ffccc7; color: #ff4d4f; padding: 10px; margin-top: 20px; display: flex; align-items: center; border-radius: 4px; }
-    .error-icon { margin-right: 8px; font-weight: bold; }
+    #loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.6); display: flex; align-items: center; justify-content: center; z-index: 10; border-radius: 8px; }
 </style>
 
 <script>
-    document.addEventListener('DOMContentLoaded', async () => {
+    document.addEventListener('DOMContentLoaded', () => {
         const form = document.getElementById('uip-form') as HTMLFormElement;
         const userInput = document.getElementById('username') as HTMLInputElement;
         const toggleLink = document.getElementById('toggle-link');
         const sendCodeBtn = document.getElementById('send-code-btn') as HTMLButtonElement;
         const emailInput = document.getElementById('email') as HTMLInputElement;
+        const ageInput = document.getElementById('age') as HTMLInputElement;
+        const passwordInput = document.getElementById('password') as HTMLInputElement;
         
+        const captchaModal = document.getElementById('captcha-modal');
+        const captchaImg = document.getElementById('captcha-img') as HTMLImageElement;
+        const captchaGrid = document.getElementById('captcha-grid');
+        const captchaSlider = document.getElementById('captcha-nav-slider') as HTMLInputElement;
+
         const successAlert = document.getElementById('success-alert');
         const errorAlert = document.getElementById('error-alert');
         const errorText = document.getElementById('error-text');
@@ -93,8 +195,23 @@
         let isLoginMode = false;
         const apiUrl = import.meta.env.PUBLIC_API_URL || '';
 
+        function hideAlerts() {
+            errorAlert.classList.add('hidden');
+            successAlert.classList.add('hidden');
+        }
+
+        // --- 核心优化：输入即清除错误 ---
+        form.addEventListener('input', hideAlerts);
+
         // 切换模式逻辑
         function updateUI() {
+            // 1. 清空所有提示
+            hideAlerts();
+            
+            // 2. 清空所有表单字段
+            form.reset();
+
+            // 3. 更新文案和可见性
             document.getElementById('form-title').textContent = isLoginMode ? "账号登录" : "账号注册";
             document.getElementById('email-field').classList.toggle('hidden', isLoginMode);
             document.getElementById('code-field').classList.toggle('hidden', isLoginMode);
@@ -102,10 +219,15 @@
             toggleLink.textContent = isLoginMode ? "没有账号？点击注册" : "已有账号？点击登录";
             
             if (!isLoginMode) {
+                // 注册模式：自动生成用户名，设为只读
                 userInput.value = `User_${Math.floor(Math.random()*899999+100000)}`;
+                userInput.readOnly = true;
+                userInput.tabIndex = -1;
             } else {
+                // 登录模式：允许编辑用户名
                 userInput.value = "";
                 userInput.readOnly = false;
+                userInput.tabIndex = 0;
             }
         }
         updateUI();
@@ -116,38 +238,68 @@
             updateUI();
         });
 
-        // 发送验证码逻辑
-        sendCodeBtn.addEventListener('click', async () => {
-            const email = emailInput.value;
-            if (!email) {
-                showError("请先输入邮箱地址");
-                return;
-            }
+        // 年龄输入锁定
+        ageInput.addEventListener('keydown', (e) => {
+            if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && e.key !== "Tab") e.preventDefault();
+        });
 
+        // 验证码网格渲染
+        function renderGrid() {
+            const startIdx = parseInt(captchaSlider.value) * 4;
+            let html = '';
+            for (let i = 0; i < 20; i++) {
+                const num = startIdx + i;
+                const val = num.toString().padStart(6, '0');
+                html += `<button type="button" class="captcha-btn">${val}</button>`;
+            }
+            captchaGrid.innerHTML = html;
+        }
+        captchaSlider.addEventListener('input', renderGrid);
+
+        async function openCaptcha() {
+            hideAlerts();
+            await fetchNewCaptcha();
+            captchaModal.classList.remove('hidden');
+            captchaSlider.value = "0";
+            renderGrid();
+        }
+
+        async function fetchNewCaptcha() {
+            const res = await fetch(`${apiUrl}/api/captcha`);
+            const data = await res.json();
+            captchaImg.src = data.image;
+            captchaImg.dataset.key = data.captchaKey;
+        }
+
+        document.getElementById('refresh-captcha').addEventListener('click', fetchNewCaptcha);
+
+        captchaGrid.addEventListener('click', (e) => {
+            const btn = (e.target as HTMLElement).closest('.captcha-btn') as HTMLButtonElement;
+            if (!btn) return;
+            captchaModal.classList.add('hidden');
+            executeSendCode(btn.textContent, captchaImg.dataset.key);
+        });
+
+        const closeFunc = () => captchaModal.classList.add('hidden');
+        document.getElementById('close-captcha-x').addEventListener('click', closeFunc);
+        document.getElementById('close-captcha-btn').addEventListener('click', closeFunc);
+
+        async function executeSendCode(val, key) {
             sendCodeBtn.disabled = true;
             loading.classList.remove('hidden');
-            
             try {
                 const res = await fetch(`${apiUrl}/api/send-code`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email })
+                    body: JSON.stringify({ email: emailInput.value, captchaKey: key, captchaValue: val })
                 });
                 const result = await res.json();
                 if (!res.ok) {
                     showError(result.error);
                     sendCodeBtn.disabled = false;
                 } else {
-                    let countdown = 60;
-                    const timer = setInterval(() => {
-                        sendCodeBtn.textContent = `${countdown}s 后重发`;
-                        if (countdown <= 0) {
-                            clearInterval(timer);
-                            sendCodeBtn.textContent = "发送验证码";
-                            sendCodeBtn.disabled = false;
-                        }
-                        countdown--;
-                    }, 1000);
+                    showSuccess("验证码已发送");
+                    startCountdown();
                 }
             } catch {
                 showError("发送失败");
@@ -155,51 +307,70 @@
             } finally {
                 loading.classList.add('hidden');
             }
-        });
+        }
 
-        // 提交表单
+        function startCountdown() {
+            let countdown = 60;
+            const timer = setInterval(() => {
+                sendCodeBtn.textContent = `${countdown}s`;
+                if (countdown <= 0) {
+                    clearInterval(timer);
+                    sendCodeBtn.textContent = "发送验证码";
+                    sendCodeBtn.disabled = false;
+                }
+                countdown--;
+            }, 1000);
+        }
+
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            loading.classList.remove('hidden');
-            errorAlert.classList.add('hidden');
+            hideAlerts();
 
             const formData = new FormData(form);
             const data = Object.fromEntries(formData.entries());
-            if (!isLoginMode) data.age = parseInt(data.age as string);
 
-            const endpoint = isLoginMode ? '/api/login' : '/api/register';
-            
+            if (!isLoginMode) {
+                const password = data.password as string;
+                if (password.length <= 32 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+                    showError("密码强度未通过安全审查");
+                    return;
+                }
+                data.age = parseInt(data.age as string);
+            }
+
+            loading.classList.remove('hidden');
             try {
-                const response = await fetch(`${apiUrl}${endpoint}`, {
+                const response = await fetch(`${apiUrl}${isLoginMode ? '/api/login' : '/api/register'}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data),
                     credentials: 'include'
                 });
-
                 const result = await response.json();
                 if (!response.ok) {
                     showError(result.error);
                 } else {
-                    if (!isLoginMode) {
+                    if (isLoginMode) {
+                        location.reload();
+                    } else {
                         isLoginMode = true;
                         updateUI();
-                        successAlert.textContent = "注册成功，请登录";
-                        successAlert.classList.remove('hidden');
-                    } else {
-                        location.reload(); // 简单起见，刷新显示 Dashboard
+                        showSuccess("注册成功，请登录");
                     }
                 }
-            } catch (err) {
-                showError("连接服务器失败");
+            } catch {
+                showError("服务器无法连接");
             } finally {
                 loading.classList.add('hidden');
             }
         });
 
-        function showError(msg) {
-            errorText.textContent = msg;
-            errorAlert.classList.remove('hidden');
-        }
+        function showError(msg) { errorText.textContent = msg; errorAlert.classList.remove('hidden'); }
+        function showSuccess(msg) { successAlert.textContent = msg; successAlert.classList.remove('hidden'); }
+        
+        sendCodeBtn.addEventListener('click', () => {
+            if (emailInput.value) openCaptcha();
+            else showError("请输入邮箱");
+        });
     });
 </script>

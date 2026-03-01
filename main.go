@@ -14,6 +14,7 @@ func main() {
 	db.InitDB()
 
 	// 注册 API 路由
+	http.HandleFunc("/api/captcha", api.HandleGetCaptcha)
 	http.HandleFunc("/api/send-code", api.HandleSendCode)
 	http.HandleFunc("/api/register", api.HandleRegister)
 	http.HandleFunc("/api/login", api.HandleLogin)

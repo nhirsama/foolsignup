@@ -23,6 +23,12 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1. 人机验证二次检查 (校验 Key 和所选 Value)
+	if req.CaptchaKey == "" || req.CaptchaValue == "" || !VerifyCaptcha(req.CaptchaKey, req.CaptchaValue) {
+		sendError(w, "人机验证未通过或已过期，请重新验证", http.StatusForbidden)
+		return
+	}
+
 	if req.Email == "" {
 		sendError(w, "请输入邮箱地址", http.StatusBadRequest)
 		return

@@ -8,11 +8,13 @@ import (
 
 // RequestBody 定义了 API 请求的通用结构体。
 type RequestBody struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Age      int    `json:"age"`
-	Password string `json:"password"`
-	Code     string `json:"code"`
+	Username     string `json:"username"`
+	Email        string `json:"email"`
+	Age          int    `json:"age"`
+	Password     string `json:"password"`
+	Code         string `json:"code"`
+	CaptchaKey   string `json:"captchaKey"`
+	CaptchaValue string `json:"captchaValue"`
 }
 
 // ResponseBody 定义了 API 响应的通用结构体。
@@ -22,7 +24,16 @@ type ResponseBody struct {
 	Message string `json:"message,omitempty"`
 }
 
-var restrictedDomains = []string{"gmail.com", "outlook.com", "qq.com", "163.com", "hotmail.com", "yahoo.com"}
+var restrictedDomains = []string{
+	// 国际主流
+	"gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "me.com", "aol.com", "live.com", "msn.com",
+
+	// 国内主流
+	"qq.com", "163.com", "126.com", "foxmail.com", "aliyun.com", "sina.com", "sina.cn", "yeah.net", "139.com", "189.cn",
+
+	// 隐私与极客向
+	"proton.me", "protonmail.com", "pm.me", "tuta.com", "zoho.com", "yandex.com",
+}
 
 func setupCORSAndMethod(w http.ResponseWriter, r *http.Request, method string) bool {
 	setCorsHeaders(w)
