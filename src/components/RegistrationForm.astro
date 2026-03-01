@@ -1,0 +1,205 @@
+<div class="login-container">
+    <div class="login-card">
+        <div id="auth-view">
+            <div class="login-header">
+                <h2 id="form-title">账号注册</h2>
+                <p id="form-subtitle">管理您的个人身份及访问权限</p>
+            </div>
+
+            <form id="uip-form">
+                <div class="form-item">
+                    <label>用户名</label>
+                    <input type="text" id="username" name="username" readonly tabindex="-1" />
+                </div>
+                <div class="form-item" id="email-field">
+                    <label>邮箱地址</label>
+                    <div class="input-with-action">
+                        <input type="email" id="email" name="email" placeholder="请输入您的电子邮箱" />
+                        <button type="button" id="send-code-btn" class="inline-button">发送验证码</button>
+                    </div>
+                </div>
+                <div class="form-item" id="code-field">
+                    <label>邮箱验证码</label>
+                    <input type="text" id="code" name="code" placeholder="6位验证码" maxlength="6" />
+                </div>
+                <div class="form-item" id="age-field">
+                    <label>年龄</label>
+                    <input type="number" id="age" name="age" placeholder="请填写您的实足年龄" />
+                </div>
+                <div class="form-item">
+                    <label>密码</label>
+                    <input type="password" id="password" name="password" placeholder="请输入您的密码" required />
+                </div>
+                <button type="submit" id="submit-btn" class="primary-button">确认提交</button>
+                <div class="form-toggle">
+                    <a href="#" id="toggle-link">已有账号？切换到登录</a>
+                </div>
+            </form>
+        </div>
+
+        <div id="dashboard-view" class="hidden">
+            <div class="dash-header">
+                <div class="user-avatar">U</div>
+                <div class="user-info">
+                    <h3 id="dash-username">...</h3>
+                    <p>在线 · 企业认证实体</p>
+                </div>
+            </div>
+            <button class="secondary-button" id="logout-btn">安全退出系统</button>
+        </div>
+
+        <div id="loading-overlay" class="hidden"><div class="spinner"></div></div>
+        <div id="error-alert" class="hidden"><span class="error-icon">!</span><span id="error-text"></span></div>
+        <div id="success-alert" class="hidden" style="margin-top:20px; color:#52c41a; font-size:14px; text-align:center;"></div>
+    </div>
+</div>
+
+<style>
+    .login-container { width: 100%; max-width: 440px; margin: 12vh auto; }
+    .login-card { background: #fff; padding: 48px 40px; border: 1px solid #f0f0f0; border-radius: 4px; box-shadow: 0 6px 16px rgba(0,0,0,0.08); }
+    .hidden { display: none !important; }
+    input { width: 100%; height: 40px; border: 1px solid #d9d9d9; padding: 0 10px; margin-bottom: 15px; box-sizing: border-box; }
+    input[readonly] { background: #f5f5f5; color: #bfbfbf; }
+    
+    .input-with-action { display: flex; gap: 8px; }
+    .input-with-action input { flex: 1; margin-bottom: 0; }
+    
+    .inline-button { height: 40px; padding: 0 12px; background: #fff; border: 1px solid #d9d9d9; font-size: 13px; cursor: pointer; white-space: nowrap; }
+    .inline-button:disabled { color: #bfbfbf; cursor: not-allowed; }
+
+    .primary-button { width: 100%; height: 40px; background: #1677ff; color: #fff; border: none; cursor: pointer; font-weight: 500; margin-top: 10px; }
+    .secondary-button { width: 100%; height: 40px; background: #fff; border: 1px solid #d9d9d9; cursor: pointer; margin-top: 20px; }
+    
+    .spinner { width: 24px; height: 24px; border: 2px solid #f3f3f3; border-top: 2px solid #1677ff; border-radius: 50%; animation: spin 1s linear infinite; display: inline-block; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    
+    #error-alert { background: #fff2f0; border: 1px solid #ffccc7; color: #ff4d4f; padding: 10px; margin-top: 20px; display: flex; align-items: center; border-radius: 4px; }
+    .error-icon { margin-right: 8px; font-weight: bold; }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', async () => {
+        const form = document.getElementById('uip-form') as HTMLFormElement;
+        const userInput = document.getElementById('username') as HTMLInputElement;
+        const toggleLink = document.getElementById('toggle-link');
+        const sendCodeBtn = document.getElementById('send-code-btn') as HTMLButtonElement;
+        const emailInput = document.getElementById('email') as HTMLInputElement;
+        
+        const successAlert = document.getElementById('success-alert');
+        const errorAlert = document.getElementById('error-alert');
+        const errorText = document.getElementById('error-text');
+        const loading = document.getElementById('loading-overlay');
+
+        let isLoginMode = false;
+        const apiUrl = import.meta.env.PUBLIC_API_URL || '';
+
+        // 切换模式逻辑
+        function updateUI() {
+            document.getElementById('form-title').textContent = isLoginMode ? "账号登录" : "账号注册";
+            document.getElementById('email-field').classList.toggle('hidden', isLoginMode);
+            document.getElementById('code-field').classList.toggle('hidden', isLoginMode);
+            document.getElementById('age-field').classList.toggle('hidden', isLoginMode);
+            toggleLink.textContent = isLoginMode ? "没有账号？点击注册" : "已有账号？点击登录";
+            
+            if (!isLoginMode) {
+                userInput.value = `User_${Math.floor(Math.random()*899999+100000)}`;
+            } else {
+                userInput.value = "";
+                userInput.readOnly = false;
+            }
+        }
+        updateUI();
+
+        toggleLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            isLoginMode = !isLoginMode;
+            updateUI();
+        });
+
+        // 发送验证码逻辑
+        sendCodeBtn.addEventListener('click', async () => {
+            const email = emailInput.value;
+            if (!email) {
+                showError("请先输入邮箱地址");
+                return;
+            }
+
+            sendCodeBtn.disabled = true;
+            loading.classList.remove('hidden');
+            
+            try {
+                const res = await fetch(`${apiUrl}/api/send-code`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                const result = await res.json();
+                if (!res.ok) {
+                    showError(result.error);
+                    sendCodeBtn.disabled = false;
+                } else {
+                    let countdown = 60;
+                    const timer = setInterval(() => {
+                        sendCodeBtn.textContent = `${countdown}s 后重发`;
+                        if (countdown <= 0) {
+                            clearInterval(timer);
+                            sendCodeBtn.textContent = "发送验证码";
+                            sendCodeBtn.disabled = false;
+                        }
+                        countdown--;
+                    }, 1000);
+                }
+            } catch {
+                showError("发送失败");
+                sendCodeBtn.disabled = false;
+            } finally {
+                loading.classList.add('hidden');
+            }
+        });
+
+        // 提交表单
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            loading.classList.remove('hidden');
+            errorAlert.classList.add('hidden');
+
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData.entries());
+            if (!isLoginMode) data.age = parseInt(data.age as string);
+
+            const endpoint = isLoginMode ? '/api/login' : '/api/register';
+            
+            try {
+                const response = await fetch(`${apiUrl}${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                    credentials: 'include'
+                });
+
+                const result = await response.json();
+                if (!response.ok) {
+                    showError(result.error);
+                } else {
+                    if (!isLoginMode) {
+                        isLoginMode = true;
+                        updateUI();
+                        successAlert.textContent = "注册成功，请登录";
+                        successAlert.classList.remove('hidden');
+                    } else {
+                        location.reload(); // 简单起见，刷新显示 Dashboard
+                    }
+                }
+            } catch (err) {
+                showError("连接服务器失败");
+            } finally {
+                loading.classList.add('hidden');
+            }
+        });
+
+        function showError(msg) {
+            errorText.textContent = msg;
+            errorAlert.classList.remove('hidden');
+        }
+    });
+</script>

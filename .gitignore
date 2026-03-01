@@ -1,0 +1,7 @@
+/.env
+/public
+/node_modules
+/.idea
+/.astro
+/todo.md
+/data
