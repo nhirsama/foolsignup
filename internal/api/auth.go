@@ -94,3 +94,16 @@ func HandleMe(w http.ResponseWriter, r *http.Request) {
 
 	sendProto(w, res)
 }
+
+// HandleLogout 清除会话 Cookie。
+func HandleLogout(w http.ResponseWriter, r *http.Request) {
+	setCorsHeaders(w)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "uip_session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+	w.WriteHeader(http.StatusOK)
+}

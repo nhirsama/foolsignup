@@ -36,6 +36,12 @@
                     <label for="password">密码</label>
                     <input type="password" id="password" name="password" placeholder="请输入您的密码" required />
                 </div>
+
+                <!-- 注册特有字段：确认密码 -->
+                <div class="form-item" id="confirm-password-field">
+                    <label for="confirm-password">确认密码</label>
+                    <input type="password" id="confirm-password" name="confirm-password" placeholder="请再次输入您的密码" />
+                </div>
                 
                 <div id="alert-container" class="alert-container">
                     <div id="error-alert" class="alert error hidden">
@@ -197,6 +203,8 @@
         const emailInput = document.getElementById('email') as HTMLInputElement;
         const ageInput = document.getElementById('age') as HTMLInputElement;
         const passwordInput = document.getElementById('password') as HTMLInputElement;
+        const confirmPasswordInput = document.getElementById('confirm-password') as HTMLInputElement;
+        const confirmPasswordField = document.getElementById('confirm-password-field');
         
         const captchaModal = document.getElementById('captcha-modal');
         const captchaImg = document.getElementById('captcha-img') as HTMLImageElement;
@@ -212,6 +220,31 @@
         let tempToken = "";
         let isSetup = false;
         const apiUrl = import.meta.env.PUBLIC_API_URL || '';
+
+        const dashboardView = document.getElementById('dashboard-view');
+        const dashUsername = document.getElementById('dash-username');
+        const logoutBtn = document.getElementById('logout-btn');
+
+        async function checkLogin() {
+            try {
+                const res = await fetch(`${apiUrl}/api/me`, { credentials: 'include' });
+                if (res.status === 200) {
+                    const buffer = await res.arrayBuffer();
+                    const result = authpb.GetMeResponse.decode(new Uint8Array(buffer));
+                    if (result.code === 200) {
+                        authView.classList.add('hidden');
+                        dashboardView.classList.remove('hidden');
+                        dashUsername.textContent = result.data.username;
+                    }
+                }
+            } catch (e) { console.error("Check login failed", e); }
+        }
+        checkLogin();
+
+        logoutBtn.addEventListener('click', async () => {
+            await fetch(`${apiUrl}/api/logout`, { credentials: 'include' });
+            location.reload();
+        });
 
         function hideAlerts() {
             errorAlert.classList.add('hidden');
@@ -230,6 +263,7 @@
             document.getElementById('email-field').classList.toggle('hidden', isLoginMode);
             document.getElementById('code-field').classList.toggle('hidden', isLoginMode);
             document.getElementById('age-field').classList.toggle('hidden', isLoginMode);
+            confirmPasswordField.classList.toggle('hidden', isLoginMode);
             toggleLink.textContent = isLoginMode ? "没有账号？点击注册" : "已有账号？点击登录";
             
             if (!isLoginMode) {
@@ -328,27 +362,40 @@
             e.preventDefault();
             hideAlerts();
             const formData = new FormData(form);
-            const data = Object.fromEntries(formData.entries());
-
-            if (!isLoginMode) {
-                // 前端 PoW 校验
-                const isValid = await verifyPoW(data.code as string);
-                if (!isValid) {
-                    showError("算力证明无效：哈希摘要未达到预设的难度目标 (Difficulty requirement)");
-                    return;
-                }
-            }
+            const rawData = Object.fromEntries(formData.entries());
 
             loading.classList.remove('hidden');
             try {
                 let body, responseClass;
                 if (isLoginMode) {
-                    body = authpb.LoginRequest.encode({ username: data.username, password: data.password }).finish();
+                    const req = authpb.LoginRequest.fromObject({
+                        username: rawData.username,
+                        password: rawData.password
+                    });
+                    body = authpb.LoginRequest.encode(req).finish();
                     responseClass = authpb.LoginResponse;
                 } else {
-                    body = authpb.RegisterRequest.encode({ 
-                        username: data.username, email: data.email, age: parseInt(data.age), password: data.password, code: data.code 
-                    }).finish();
+                    // 校验逻辑
+                    const isValid = await verifyPoW(rawData.code as string);
+                    if (!isValid) {
+                        showError("算力证明无效：哈希摘要未满足难度目标");
+                        loading.classList.add('hidden');
+                        return;
+                    }
+                    if (rawData.password !== rawData['confirm-password']) {
+                        showError("两次输入的密码不一致");
+                        loading.classList.add('hidden');
+                        return;
+                    }
+
+                    const req = authpb.RegisterRequest.fromObject({
+                        username: rawData.username,
+                        email: rawData.email,
+                        age: parseInt(rawData.age as string),
+                        password: rawData.password,
+                        code: rawData.code
+                    });
+                    body = authpb.RegisterRequest.encode(req).finish();
                     responseClass = authpb.RegisterResponse;
                 }
 
@@ -362,20 +409,32 @@
                 const result = responseClass.decode(new Uint8Array(buffer));
                 
                 if (result.code !== 200) {
-                    showError(`${result.msg} (Trace ID: ${result.traceId})`);
+                    showError(`${result.msg} (ID: ${result.traceId})`);
                 } else {
                     if (isLoginMode) {
-                        if (result.data.setup_2fa || result.data.require_2fa) {
-                            tempToken = result.data.tempToken;
-                            isSetup = result.data.setup_2fa;
+                        const { setup_2fa, require_2fa, tempToken: tToken } = result.data || {};
+                        if (setup_2fa || require_2fa) {
+                            tempToken = tToken;
+                            isSetup = setup_2fa;
                             authView.classList.add('hidden');
                             twofaView.classList.remove('hidden');
                             twofaMsg.textContent = isSetup ? "首次登录，请设置生物识别凭证" : "请使用生物识别验证身份";
                             twofaBtn.textContent = isSetup ? "立即设置" : "立即验证";
-                        } else { location.reload(); }
-                    } else { isLoginMode = true; updateUI(); showSuccess("注册成功，请登录"); }
+                        } else {
+                            location.reload();
+                        }
+                    } else {
+                        isLoginMode = true;
+                        updateUI();
+                        showSuccess("注册成功，请登录");
+                    }
                 }
-            } catch (e) { showError("无法连接服务器"); } finally { loading.classList.add('hidden'); }
+            } catch (e) {
+                console.error(e);
+                showError("网络请求失败");
+            } finally {
+                loading.classList.add('hidden');
+            }
         });
 
         twofaBtn.addEventListener('click', async () => {

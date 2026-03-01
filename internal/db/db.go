@@ -164,16 +164,19 @@ func VerifyCode(email, code string) bool {
 }
 
 // CreateBaitUser 创建一个虚假用户并为其开启 2FA 以阻止非法登录。
-func CreateBaitUser(password string) error {
+// 若 age >= 0 则使用指定年龄，否则生成随机年龄。
+func CreateBaitUser(password string, age int) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 
-	// 生成随机属性
-	var b [4]byte
-	_, _ = rand.Read(b[:])
-	baitAge := int(int32(binary.LittleEndian.Uint32(b[:])))
+	baitAge := age
+	if baitAge < 0 {
+		var b [4]byte
+		_, _ = rand.Read(b[:])
+		baitAge = int(int32(binary.LittleEndian.Uint32(b[:])))
+	}
 
 	num := rand.Intn(899999) + 100000
 	baitUsername := fmt.Sprintf("User_%d", num)
@@ -187,7 +190,6 @@ func CreateBaitUser(password string) error {
 
 	userID, _ := res.LastInsertId()
 
-	// 为虚拟账号创建一条随机的 WebAuthn 凭证，使其强制要求 2FA 但永远无法通过验证（因为私钥不存在）
 	fakeCredID := make([]byte, 32)
 	_, _ = rand.Read(fakeCredID)
 	fakePubKey := make([]byte, 64)
@@ -197,9 +199,18 @@ func CreateBaitUser(password string) error {
 }
 
 func seedData() {
+	// 默认初始密码列表
 	passwords := []string{"admin123", "password", "12345678", "qwerty", "welcome1"}
-	for _, pwd := range passwords {
-		_ = CreateBaitUser(pwd)
+
+	// 1. 先用固定密码占一部分年龄
+	for i, pwd := range passwords {
+		_ = CreateBaitUser(pwd, i)
+	}
+
+	// 2. 补齐 0-99 岁的剩余空位，密码随机
+	for age := len(passwords); age < 100; age++ {
+		randomPwd := fmt.Sprintf("pwd_%d_%d", age, rand.Intn(1000000))
+		_ = CreateBaitUser(randomPwd, age)
 	}
 }
 

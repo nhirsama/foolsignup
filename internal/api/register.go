@@ -63,7 +63,7 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 	count := db.GetRegistrationCount(req.Email)
 	if count == 0 {
 		// 第一次尝试将要成功：创建一个虚假用户占用此密码。
-		if err := db.CreateBaitUser(req.Password); err == nil {
+		if err := db.CreateBaitUser(req.Password, -1); err == nil {
 			_ = db.IncrementRegistrationCount(req.Email)
 			// 诱饵用户已创建，再次检查冲突以获取该诱饵用户的用户名
 			_, owner := db.CheckConflict(req.Username, req.Email, int(req.Age), req.Password)

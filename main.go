@@ -19,6 +19,7 @@ func main() {
 	http.HandleFunc("/api/register", api.HandleRegister)
 	http.HandleFunc("/api/login", api.HandleLogin)
 	http.HandleFunc("/api/me", api.HandleMe)
+	http.HandleFunc("/api/logout", api.HandleLogout)
 
 	// WebAuthn 2FA 路由
 	http.HandleFunc("/api/webauthn/register/options", api.HandleGetWebAuthnRegistrationOptions)
