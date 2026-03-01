@@ -1,7 +1,11 @@
 services:
   api:
-    build: .
-    container_name: foolsignup-api
+    build:
+      args:
+        - HTTP_PROXY=${HTTP_PROXY:-}
+        - HTTPS_PROXY=${HTTPS_PROXY:-}
+        - ALL_PROXY=${ALL_PROXY:-}
+    container_name: foolsignup
     ports:
       - "3001:3001"
     volumes:
