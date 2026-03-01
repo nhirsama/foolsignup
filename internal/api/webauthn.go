@@ -29,22 +29,17 @@ var (
 func getWebAuthn() *webauthn.WebAuthn {
 	waOnce.Do(func() {
 		var err error
-		apiURL := os.Getenv("PUBLIC_API_URL")
+		allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
 		rpID := "localhost"
 		origin := "http://localhost:4321"
 
-		if apiURL != "" {
-			origin = apiURL
-			u, err := url.Parse(apiURL)
+		if allowedOrigin != "" {
+			origin = allowedOrigin
+			u, err := url.Parse(allowedOrigin)
 			if err == nil {
 				// 移除端口号以获得 RPID
 				rpID = u.Hostname()
 			}
-		}
-
-		// Cloudflare 环境下，如果 apiURL 是 https，确保 origin 也是 https
-		if strings.HasPrefix(origin, "https://") {
-			// WebAuthn 要求 origin 必须包含协议和端口（如果是标准端口可省略）
 		}
 
 		webAuthn, err = webauthn.New(&webauthn.Config{
