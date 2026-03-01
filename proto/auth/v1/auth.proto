@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package foolsignup.auth.v1;
+
+option go_package = "foolsignup-api/internal/pb/auth/v1;authpb";
+
+// AuthService 处理所有与身份验证、注册及验证码相关的逻辑。
+service AuthService {
+  // GetCaptcha 获取验证码
+  rpc GetCaptcha(GetCaptchaRequest) returns (GetCaptchaResponse);
+  // SendEmailCode 发送验证码
+  rpc SendEmailCode(SendEmailCodeRequest) returns (SendEmailCodeResponse);
+  // Register 注册
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  // Login 登录
+  rpc Login(LoginRequest) returns (LoginResponse);
+  // GetMe 获取信息
+  rpc GetMe(GetMeRequest) returns (GetMeResponse);
+
+  // --- WebAuthn 2FA 相关 ---
+  rpc GetWebAuthnRegistrationOptions(GetWebAuthnRegistrationOptionsRequest) returns (GetWebAuthnRegistrationOptionsResponse);
+  rpc VerifyWebAuthnRegistration(VerifyWebAuthnRegistrationRequest) returns (VerifyWebAuthnRegistrationResponse);
+  rpc GetWebAuthnLoginOptions(GetWebAuthnLoginOptionsRequest) returns (GetWebAuthnLoginOptionsResponse);
+  rpc VerifyWebAuthnLogin(VerifyWebAuthnLoginRequest) returns (VerifyWebAuthnLoginResponse);
+}
+
+message GetCaptchaRequest {}
+message GetCaptchaResponse {
+  int32 code = 1;
+  string msg = 2;
+  string trace_id = 3;
+  message Data {
+    string captcha_key = 1;
+    string image = 2;
+  }
+  Data data = 4;
+}
+
+message SendEmailCodeRequest {
+  string email = 1;
+  string captcha_key = 2;
+  string captcha_value = 3;
+}
+message SendEmailCodeResponse {
+  int32 code = 1;
+  string msg = 2;
+  string trace_id = 3;
+}
+
+message RegisterRequest {
+  string username = 1;
+  string email = 2;
+  int32 age = 3;
+  string password = 4;
+  string code = 5;
+}
+message RegisterResponse {
+  int32 code = 1;
+  string msg = 2;
+  string trace_id = 3;
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+message LoginResponse {
+  int32 code = 1;
+  string msg = 2;
+  string trace_id = 3;
+  message Data {
+    bool require_2fa = 1;
+    bool setup_2fa = 2;
+    string temp_token = 3;
+  }
+  Data data = 4;
+}
+
+message GetWebAuthnRegistrationOptionsRequest {}
+message GetWebAuthnRegistrationOptionsResponse {
+  int32 code = 1;
+  string msg = 2;
+  string options_json = 3;
+  string trace_id = 4;
+}
+
+message VerifyWebAuthnRegistrationRequest {
+  string credential_json = 1;
+}
+message VerifyWebAuthnRegistrationResponse {
+  int32 code = 1;
+  string msg = 2;
+  string trace_id = 3;
+}
+
+message GetWebAuthnLoginOptionsRequest {
+  string temp_token = 1;
+}
+message GetWebAuthnLoginOptionsResponse {
+  int32 code = 1;
+  string msg = 2;
+  string options_json = 3;
+  string trace_id = 4;
+}
+
+message VerifyWebAuthnLoginRequest {
+  string temp_token = 1;
+  string credential_json = 2;
+}
+message VerifyWebAuthnLoginResponse {
+  int32 code = 1;
+  string msg = 2;
+  string trace_id = 3;
+}
+
+message GetMeRequest {}
+message GetMeResponse {
+  int32 code = 1;
+  string msg = 2;
+  string trace_id = 3;
+  message Data {
+    string username = 1;
+    string email = 2;
+  }
+  Data data = 4;
+}

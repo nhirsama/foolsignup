@@ -1,38 +1,32 @@
 package api
 
 import (
-	"encoding/json"
+	"crypto/rand"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"strings"
+
+	"google.golang.org/protobuf/proto"
 )
-
-// RequestBody 定义了 API 请求的通用结构体。
-type RequestBody struct {
-	Username     string `json:"username"`
-	Email        string `json:"email"`
-	Age          int    `json:"age"`
-	Password     string `json:"password"`
-	Code         string `json:"code"`
-	CaptchaKey   string `json:"captchaKey"`
-	CaptchaValue string `json:"captchaValue"`
-}
-
-// ResponseBody 定义了 API 响应的通用结构体。
-type ResponseBody struct {
-	Error   string `json:"error,omitempty"`
-	Success bool   `json:"success,omitempty"`
-	Message string `json:"message,omitempty"`
-}
 
 var restrictedDomains = []string{
 	// 国际主流
 	"gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "me.com", "aol.com", "live.com", "msn.com",
-
 	// 国内主流
 	"qq.com", "163.com", "126.com", "foxmail.com", "aliyun.com", "sina.com", "sina.cn", "yeah.net", "139.com", "189.cn",
-
 	// 隐私与极客向
 	"proton.me", "protonmail.com", "pm.me", "tuta.com", "zoho.com", "yandex.com",
+}
+
+func getTraceID(r *http.Request) string {
+	tid := r.Header.Get("X-Trace-Id")
+	if tid != "" {
+		return tid
+	}
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func setupCORSAndMethod(w http.ResponseWriter, r *http.Request, method string) bool {
@@ -41,7 +35,7 @@ func setupCORSAndMethod(w http.ResponseWriter, r *http.Request, method string) b
 		return false
 	}
 	if r.Method != method {
-		sendError(w, "方法不允许", http.StatusMethodNotAllowed)
+		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
 		return false
 	}
 	return true
@@ -50,18 +44,27 @@ func setupCORSAndMethod(w http.ResponseWriter, r *http.Request, method string) b
 func setCorsHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "http://localhost:4321")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Trace-Id")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 }
 
-func sendJSON(w http.ResponseWriter, data interface{}, code int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(data)
+// readProto 从请求体中读取 Protobuf 二进制数据并反序列化。
+func readProto(r *http.Request, msg proto.Message) error {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	return proto.Unmarshal(body, msg)
 }
 
-func sendError(w http.ResponseWriter, msg string, code int) {
-	sendJSON(w, ResponseBody{Error: msg}, code)
+// sendProto 序列化 Protobuf 消息并发送二进制响应。
+func sendProto(w http.ResponseWriter, msg proto.Message) {
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	w.WriteHeader(http.StatusOK)
+	data, err := proto.Marshal(msg)
+	if err == nil {
+		w.Write(data)
+	}
 }
 
 func isRestrictedDomain(email string) bool {

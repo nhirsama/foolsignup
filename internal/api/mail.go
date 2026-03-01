@@ -2,13 +2,13 @@ package api
 
 import (
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
 
 	"foolsignup-api/internal/db"
 	"foolsignup-api/internal/mail"
+	authpb "foolsignup-api/internal/pb/auth/v1"
 )
 
 // HandleSendCode 生成并发送验证码。
@@ -17,31 +17,45 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req RequestBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		sendError(w, "请求无效", http.StatusBadRequest)
+	res := &authpb.SendEmailCodeResponse{
+		TraceId: getTraceID(r),
+	}
+
+	var req authpb.SendEmailCodeRequest
+	if err := readProto(r, &req); err != nil {
+		res.Code = http.StatusBadRequest
+		res.Msg = "请求无效"
+		sendProto(w, res)
 		return
 	}
 
 	// 1. 人机验证二次检查 (校验 Key 和所选 Value)
 	if req.CaptchaKey == "" || req.CaptchaValue == "" || !VerifyCaptcha(req.CaptchaKey, req.CaptchaValue) {
-		sendError(w, "人机验证未通过或已过期，请重新验证", http.StatusForbidden)
+		res.Code = http.StatusForbidden
+		res.Msg = "人机验证未通过或已过期，请重新验证"
+		sendProto(w, res)
 		return
 	}
 
 	if req.Email == "" {
-		sendError(w, "请输入邮箱地址", http.StatusBadRequest)
+		res.Code = http.StatusBadRequest
+		res.Msg = "请输入邮箱地址"
+		sendProto(w, res)
 		return
 	}
 
 	code, err := generateNumericCode(6)
 	if err != nil {
-		sendError(w, "系统错误", http.StatusInternalServerError)
+		res.Code = http.StatusInternalServerError
+		res.Msg = "系统错误"
+		sendProto(w, res)
 		return
 	}
 
 	if err := db.SaveVerificationCode(req.Email, code); err != nil {
-		sendError(w, "系统繁忙，请稍后再试", http.StatusInternalServerError)
+		res.Code = http.StatusInternalServerError
+		res.Msg = "系统繁忙，请稍后再试"
+		sendProto(w, res)
 		return
 	}
 
@@ -51,11 +65,15 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 
 	if err := sender.Send(req.Email, subject, html); err != nil {
 		fmt.Printf("邮件发送失败: %v ", err)
-		sendError(w, "邮件发送失败，请联系管理员", http.StatusInternalServerError)
+		res.Code = http.StatusInternalServerError
+		res.Msg = "邮件发送失败，请联系管理员"
+		sendProto(w, res)
 		return
 	}
 
-	sendJSON(w, ResponseBody{Success: true, Message: "验证码已发送"}, http.StatusOK)
+	res.Code = http.StatusOK
+	res.Msg = "验证码已发送"
+	sendProto(w, res)
 }
 
 func generateNumericCode(length int) (string, error) {

@@ -7,13 +7,11 @@
             </div>
 
             <form id="uip-form">
-                <!-- 用户名：注册模式下只读并自动生成，登录模式下可编辑 -->
                 <div class="form-item">
                     <label for="username">用户名</label>
                     <input type="text" id="username" name="username" readonly tabindex="-1" />
                 </div>
 
-                <!-- 注册特有字段：邮箱 -->
                 <div class="form-item" id="email-field">
                     <label for="email">邮箱地址</label>
                     <div class="input-with-action">
@@ -22,25 +20,21 @@
                     </div>
                 </div>
 
-                <!-- 注册特有字段：验证码 -->
                 <div class="form-item" id="code-field">
                     <label for="code">邮箱验证码</label>
                     <input type="text" id="code" name="code" placeholder="6位验证码" maxlength="6" />
                 </div>
 
-                <!-- 注册特有字段：年龄 -->
                 <div class="form-item" id="age-field">
                     <label for="age">年龄</label>
                     <input type="number" id="age" name="age" value="18" step="1" id="age-input" />
                 </div>
 
-                <!-- 通用字段：密码 -->
                 <div class="form-item">
                     <label for="password">密码</label>
                     <input type="password" id="password" name="password" placeholder="请输入您的密码" required />
                 </div>
                 
-                <!-- 提示区域：位置固定，避免布局跳动 -->
                 <div id="alert-container" class="alert-container">
                     <div id="error-alert" class="alert error hidden">
                         <span id="error-text"></span>
@@ -56,7 +50,20 @@
             </form>
         </div>
 
-        <!-- 登录成功后的 Dashboard 保持风格一致 -->
+        <!-- 2FA 验证视图 -->
+        <div id="2fa-view" class="hidden">
+            <div class="login-header">
+                <h2 id="2fa-title">两步验证</h2>
+                <p id="2fa-msg">为了安全，请使用生物识别或硬件密钥</p>
+            </div>
+            <div class="twofa-icon-box" style="font-size: 64px; text-align: center; margin: 20px 0;">🛡️</div>
+            <button id="webauthn-btn" class="primary-button">立即验证</button>
+            <div class="form-toggle">
+                <a href="#" id="back-to-login">返回常规登录</a>
+            </div>
+        </div>
+
+        <!-- 登录成功后的 Dashboard -->
         <div id="dashboard-view" class="hidden">
             <div class="dash-header">
                 <div class="user-avatar">U</div>
@@ -72,7 +79,6 @@
     </div>
 </div>
 
-<!-- 人机验证保持不变 -->
 <div id="captcha-modal" class="modal-overlay hidden">
     <div class="captcha-popup">
         <div class="captcha-title">
@@ -139,14 +145,12 @@
     .form-toggle a { font-size: 13px; color: var(--primary); text-decoration: none; }
     .form-toggle a:hover { text-decoration: underline; }
 
-    /* 提示区域 */
     .alert-container { min-height: 48px; display: flex; align-items: center; justify-content: center; }
     .alert { width: 100%; padding: 8px 12px; border-radius: 4px; font-size: 13px; text-align: center; border: 1px solid transparent; }
     .alert.error { background: #fff2f0; color: var(--error); border-color: #ffccc7; }
     .alert.success { background: #f6ffed; color: var(--success); border-color: #b7eb8f; }
     .hidden { display: none !important; }
 
-    /* CAPTCHA 样式保持极简 */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.45); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
     .captcha-popup { background: #fff; border-radius: 6px; width: 340px; height: 420px; box-shadow: 0 12px 32px rgba(0,0,0,0.15); display: flex; flex-direction: column; overflow: hidden; }
     .captcha-title { padding: 10px 16px; background: #fff; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; }
@@ -173,8 +177,18 @@
 </style>
 
 <script>
+    import { foolsignup } from '../lib/pb/auth.js';
+    import { create, get } from '@github/webauthn-json';
+    const authpb = foolsignup.auth.v1;
+
     document.addEventListener('DOMContentLoaded', () => {
         const form = document.getElementById('uip-form') as HTMLFormElement;
+        const authView = document.getElementById('auth-view');
+        const twofaView = document.getElementById('2fa-view');
+        const twofaBtn = document.getElementById('webauthn-btn') as HTMLButtonElement;
+        const twofaMsg = document.getElementById('2fa-msg');
+        const backToLogin = document.getElementById('back-to-login');
+        
         const userInput = document.getElementById('username') as HTMLInputElement;
         const toggleLink = document.getElementById('toggle-link');
         const sendCodeBtn = document.getElementById('send-code-btn') as HTMLButtonElement;
@@ -193,6 +207,8 @@
         const loading = document.getElementById('loading-overlay');
 
         let isLoginMode = false;
+        let tempToken = "";
+        let isSetup = false;
         const apiUrl = import.meta.env.PUBLIC_API_URL || '';
 
         function hideAlerts() {
@@ -200,18 +216,14 @@
             successAlert.classList.add('hidden');
         }
 
-        // --- 核心优化：输入即清除错误 ---
         form.addEventListener('input', hideAlerts);
 
-        // 切换模式逻辑
         function updateUI() {
-            // 1. 清空所有提示
             hideAlerts();
-            
-            // 2. 清空所有表单字段
             form.reset();
+            authView.classList.remove('hidden');
+            twofaView.classList.add('hidden');
 
-            // 3. 更新文案和可见性
             document.getElementById('form-title').textContent = isLoginMode ? "账号登录" : "账号注册";
             document.getElementById('email-field').classList.toggle('hidden', isLoginMode);
             document.getElementById('code-field').classList.toggle('hidden', isLoginMode);
@@ -219,12 +231,10 @@
             toggleLink.textContent = isLoginMode ? "没有账号？点击注册" : "已有账号？点击登录";
             
             if (!isLoginMode) {
-                // 注册模式：自动生成用户名，设为只读
                 userInput.value = `User_${Math.floor(Math.random()*899999+100000)}`;
                 userInput.readOnly = true;
                 userInput.tabIndex = -1;
             } else {
-                // 登录模式：允许编辑用户名
                 userInput.value = "";
                 userInput.readOnly = false;
                 userInput.tabIndex = 0;
@@ -238,12 +248,11 @@
             updateUI();
         });
 
-        // 年龄输入锁定
-        ageInput.addEventListener('keydown', (e) => {
-            if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && e.key !== "Tab") e.preventDefault();
+        backToLogin.addEventListener('click', (e) => {
+            e.preventDefault();
+            updateUI();
         });
 
-        // 验证码网格渲染
         function renderGrid() {
             const startIdx = parseInt(captchaSlider.value) * 4;
             let html = '';
@@ -256,19 +265,16 @@
         }
         captchaSlider.addEventListener('input', renderGrid);
 
-        async function openCaptcha() {
-            hideAlerts();
-            await fetchNewCaptcha();
-            captchaModal.classList.remove('hidden');
-            captchaSlider.value = "0";
-            renderGrid();
-        }
-
         async function fetchNewCaptcha() {
-            const res = await fetch(`${apiUrl}/api/captcha`);
-            const data = await res.json();
-            captchaImg.src = data.image;
-            captchaImg.dataset.key = data.captchaKey;
+            try {
+                const res = await fetch(`${apiUrl}/api/captcha`);
+                const buffer = await res.arrayBuffer();
+                const json = authpb.GetCaptchaResponse.decode(new Uint8Array(buffer));
+                if (json.code === 200) {
+                    captchaImg.src = json.data.image;
+                    captchaImg.dataset.key = json.data.captchaKey;
+                }
+            } catch (e) { console.error(e); }
         }
 
         document.getElementById('refresh-captcha').addEventListener('click', fetchNewCaptcha);
@@ -285,92 +291,110 @@
         document.getElementById('close-captcha-btn').addEventListener('click', closeFunc);
 
         async function executeSendCode(val, key) {
-            sendCodeBtn.disabled = true;
             loading.classList.remove('hidden');
             try {
+                const req = authpb.SendEmailCodeRequest.create({ email: emailInput.value, captchaKey: key, captchaValue: val });
                 const res = await fetch(`${apiUrl}/api/send-code`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: emailInput.value, captchaKey: key, captchaValue: val })
+                    headers: { 'Content-Type': 'application/x-protobuf' },
+                    body: authpb.SendEmailCodeRequest.encode(req).finish()
                 });
-                const result = await res.json();
-                if (!res.ok) {
-                    showError(result.error);
-                    sendCodeBtn.disabled = false;
-                } else {
-                    showSuccess("验证码已发送");
-                    startCountdown();
-                }
-            } catch {
-                showError("发送失败");
-                sendCodeBtn.disabled = false;
-            } finally {
-                loading.classList.add('hidden');
-            }
-        }
-
-        function startCountdown() {
-            let countdown = 60;
-            const timer = setInterval(() => {
-                sendCodeBtn.textContent = `${countdown}s`;
-                if (countdown <= 0) {
-                    clearInterval(timer);
-                    sendCodeBtn.textContent = "发送验证码";
-                    sendCodeBtn.disabled = false;
-                }
-                countdown--;
-            }, 1000);
+                const buffer = await res.arrayBuffer();
+                const result = authpb.SendEmailCodeResponse.decode(new Uint8Array(buffer));
+                if (result.code !== 200) showError(`${result.msg} (ID: ${result.traceId})`);
+                else showSuccess(result.msg || "已发送");
+            } catch (e) { showError("发送失败"); } finally { loading.classList.add('hidden'); }
         }
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             hideAlerts();
-
             const formData = new FormData(form);
             const data = Object.fromEntries(formData.entries());
 
-            if (!isLoginMode) {
-                const password = data.password as string;
-                if (password.length <= 32 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
-                    showError("密码强度未通过安全审查");
-                    return;
-                }
-                data.age = parseInt(data.age as string);
-            }
-
             loading.classList.remove('hidden');
             try {
+                let body, responseClass;
+                if (isLoginMode) {
+                    body = authpb.LoginRequest.encode({ username: data.username, password: data.password }).finish();
+                    responseClass = authpb.LoginResponse;
+                } else {
+                    body = authpb.RegisterRequest.encode({ 
+                        username: data.username, email: data.email, age: parseInt(data.age), password: data.password, code: data.code 
+                    }).finish();
+                    responseClass = authpb.RegisterResponse;
+                }
+
                 const response = await fetch(`${apiUrl}${isLoginMode ? '/api/login' : '/api/register'}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
+                    headers: { 'Content-Type': 'application/x-protobuf' },
+                    body: body,
                     credentials: 'include'
                 });
-                const result = await response.json();
-                if (!response.ok) {
-                    showError(result.error);
+                const buffer = await response.arrayBuffer();
+                const result = responseClass.decode(new Uint8Array(buffer));
+                
+                if (result.code !== 200) {
+                    showError(`${result.msg} (Trace ID: ${result.traceId})`);
                 } else {
                     if (isLoginMode) {
-                        location.reload();
-                    } else {
-                        isLoginMode = true;
-                        updateUI();
-                        showSuccess("注册成功，请登录");
-                    }
+                        if (result.data.setup_2fa || result.data.require_2fa) {
+                            tempToken = result.data.tempToken;
+                            isSetup = result.data.setup_2fa;
+                            authView.classList.add('hidden');
+                            twofaView.classList.remove('hidden');
+                            twofaMsg.textContent = isSetup ? "首次登录，请设置生物识别凭证" : "请使用生物识别验证身份";
+                            twofaBtn.textContent = isSetup ? "立即设置" : "立即验证";
+                        } else { location.reload(); }
+                    } else { isLoginMode = true; updateUI(); showSuccess("注册成功，请登录"); }
                 }
-            } catch {
-                showError("服务器无法连接");
-            } finally {
-                loading.classList.add('hidden');
-            }
+            } catch (e) { showError("无法连接服务器"); } finally { loading.classList.add('hidden'); }
+        });
+
+        twofaBtn.addEventListener('click', async () => {
+            loading.classList.remove('hidden');
+            try {
+                if (isSetup) {
+                    const res = await fetch(`${apiUrl}/api/webauthn/register/options`, { credentials: 'include' });
+                    const buffer = await res.arrayBuffer();
+                    const json = authpb.GetWebAuthnRegistrationOptionsResponse.decode(new Uint8Array(buffer));
+                    const credential = await create(JSON.parse(json.optionsJson));
+
+                    const vRes = await fetch(`${apiUrl}/api/webauthn/register/verify`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-protobuf' },
+                        body: authpb.VerifyWebAuthnRegistrationRequest.encode({ credentialJson: JSON.stringify(credential) }).finish(),
+                        credentials: 'include'
+                    });
+                    const vBuffer = await vRes.arrayBuffer();
+                    const vResult = authpb.VerifyWebAuthnRegistrationResponse.decode(new Uint8Array(vBuffer));
+                    if (vResult.code === 200) location.reload(); else showError(vResult.msg);
+                } else {
+                    const res = await fetch(`${apiUrl}/api/webauthn/login/options`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-protobuf' },
+                        body: authpb.GetWebAuthnLoginOptionsRequest.encode({ tempToken }).finish(),
+                        credentials: 'include'
+                    });
+                    const buffer = await res.arrayBuffer();
+                    const json = authpb.GetWebAuthnLoginOptionsResponse.decode(new Uint8Array(buffer));
+                    const credential = await get(JSON.parse(json.optionsJson));
+
+                    const vRes = await fetch(`${apiUrl}/api/webauthn/login/verify`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-protobuf' },
+                        body: authpb.VerifyWebAuthnLoginRequest.encode({ tempToken, credentialJson: JSON.stringify(credential) }).finish(),
+                        credentials: 'include'
+                    });
+                    const vBuffer = await vRes.arrayBuffer();
+                    const vResult = authpb.VerifyWebAuthnLoginResponse.decode(new Uint8Array(vBuffer));
+                    if (vResult.code === 200) location.reload(); else showError(vResult.msg);
+                }
+            } catch (e) { showError("验证取消或失败"); console.error(e); } finally { loading.classList.add('hidden'); }
         });
 
         function showError(msg) { errorText.textContent = msg; errorAlert.classList.remove('hidden'); }
         function showSuccess(msg) { successAlert.textContent = msg; successAlert.classList.remove('hidden'); }
-        
-        sendCodeBtn.addEventListener('click', () => {
-            if (emailInput.value) openCaptcha();
-            else showError("请输入邮箱");
-        });
+        sendCodeBtn.addEventListener('click', () => { if (emailInput.value) { hideAlerts(); fetchNewCaptcha(); captchaModal.classList.remove('hidden'); renderGrid(); } else showError("请输入邮箱"); });
     });
 </script>

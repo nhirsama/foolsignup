@@ -20,6 +20,12 @@ func main() {
 	http.HandleFunc("/api/login", api.HandleLogin)
 	http.HandleFunc("/api/me", api.HandleMe)
 
+	// WebAuthn 2FA 路由
+	http.HandleFunc("/api/webauthn/register/options", api.HandleGetWebAuthnRegistrationOptions)
+	http.HandleFunc("/api/webauthn/register/verify", api.HandleVerifyWebAuthnRegistration)
+	http.HandleFunc("/api/webauthn/login/options", api.HandleGetWebAuthnLoginOptions)
+	http.HandleFunc("/api/webauthn/login/verify", api.HandleVerifyWebAuthnLogin)
+
 	port := os.Getenv("FOOL_SIGNUP_PORT")
 	if port == "" {
 		port = "3001" // 本地开发默认端口
