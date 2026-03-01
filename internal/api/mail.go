@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"strings"
 
 	"foolsignup/internal/db"
 	"foolsignup/internal/mail"
@@ -40,6 +41,19 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 	if req.Email == "" {
 		res.Code = http.StatusBadRequest
 		res.Msg = "请输入邮箱地址"
+		sendProto(w, res)
+		return
+	}
+
+	// 2. 邮箱域名校验
+	if isRestrictedDomain(req.Email) {
+		domain := ""
+		parts := strings.Split(req.Email, "@")
+		if len(parts) == 2 {
+			domain = parts[1]
+		}
+		res.Code = http.StatusBadRequest
+		res.Msg = fmt.Sprintf("暂不支持 %s 邮箱，请使用其他邮箱", domain)
 		sendProto(w, res)
 		return
 	}

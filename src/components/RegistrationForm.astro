@@ -9,7 +9,7 @@
             <form id="uip-form">
                 <div class="form-item">
                     <label for="username">用户名</label>
-                    <input type="text" id="username" name="username" readonly tabindex="-1" />
+                    <input type="text" id="username" name="username" readonly tabindex="-1" placeholder="系统自动生成" />
                 </div>
 
                 <div class="form-item" id="email-field">
@@ -24,11 +24,12 @@
                     <label for="code">邮箱验证码</label>
                     <input type="text" id="code" name="code" placeholder="6位验证码" maxlength="6" />
                 </div>
+<!-- 注册特有字段：年龄 -->
+<div class="form-item" id="age-field">
+    <label for="age">年龄</label>
+    <input type="number" id="age" name="age" step="1" placeholder="请输入您的年龄" />
+</div>
 
-                <div class="form-item" id="age-field">
-                    <label for="age">年龄</label>
-                    <input type="number" id="age" name="age" value="18" step="1" id="age-input" />
-                </div>
 
                 <div class="form-item">
                     <label for="password">密码</label>
@@ -238,6 +239,7 @@
                 userInput.value = "";
                 userInput.readOnly = false;
                 userInput.tabIndex = 0;
+                userInput.placeholder = "请输入您的用户名";
             }
         }
         updateUI();
@@ -251,6 +253,13 @@
         backToLogin.addEventListener('click', (e) => {
             e.preventDefault();
             updateUI();
+        });
+
+        // 年龄输入锁定：禁止小键盘和主键盘输入数字及字符，仅允许箭头调节
+        ageInput.addEventListener('keydown', (e) => {
+            if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && e.key !== "Tab") {
+                e.preventDefault();
+            }
         });
 
         function renderGrid() {

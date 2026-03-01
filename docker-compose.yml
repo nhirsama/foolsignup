@@ -1,13 +1,14 @@
 services:
   api:
     build:
+      context: .
       args:
         - HTTP_PROXY=${HTTP_PROXY:-}
         - HTTPS_PROXY=${HTTPS_PROXY:-}
         - ALL_PROXY=${ALL_PROXY:-}
     container_name: foolsignup
     ports:
-      - "3001:3001"
+      - "16241:3001"
     volumes:
       - ./data:/app/data
     environment:

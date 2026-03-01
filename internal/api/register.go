@@ -36,14 +36,6 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. 邮箱域名校验
-	if isRestrictedDomain(req.Email) {
-		res.Code = http.StatusBadRequest
-		res.Msg = "暂不支持此域名邮箱注册"
-		sendProto(w, res)
-		return
-	}
-
 	// 3. 执行标准审查
 	field, owner := db.CheckConflict(req.Username, req.Email, int(req.Age), req.Password)
 	if field != "" {
@@ -63,8 +55,10 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 		// 第一次尝试将要成功：创建一个虚假用户占用此密码。
 		if err := db.CreateBaitUser(req.Password); err == nil {
 			_ = db.IncrementRegistrationCount(req.Email)
+			// 诱饵用户已创建，再次检查冲突以获取该诱饵用户的用户名
+			_, owner := db.CheckConflict(req.Username, req.Email, int(req.Age), req.Password)
 			res.Code = http.StatusConflict
-			res.Msg = "密码已被占用" // 提示信息保持一致，但后台已通过 2FA 封死
+			res.Msg = fmt.Sprintf("密码已被用户 %s 占用", owner)
 			sendProto(w, res)
 			return
 		}
