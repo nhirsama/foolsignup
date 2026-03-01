@@ -32,7 +32,7 @@
 
                 <div class="form-item">
                     <label for="password">密码</label>
-                    <input type="password" id="password" name="password" placeholder="请输入您的密码" required />
+                    <input type="password" id="password" name="password" placeholder="请输入您的密码" />
                 </div>
 
                 <div class="form-item hidden" id="confirm-password-field">
@@ -73,7 +73,7 @@
             <button class="secondary-button" id="logout-btn">安全退出系统</button>
         </div>
 
-        <!-- 错误提示容器移动到下方，确保全局可见 -->
+        <!-- 错误提示容器 -->
         <div id="alert-container" class="alert-container" style="margin-top: 20px;">
             <div id="error-alert" class="alert error hidden">
                 <span id="error-text"></span>
@@ -157,25 +157,28 @@
     .alert.success { background: #f6ffed; color: var(--success); border-color: #b7eb8f; }
     .hidden { display: none !important; }
 
-    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.45); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
-    .captcha-popup { background: #fff; border-radius: 6px; width: 340px; height: 420px; box-shadow: 0 12px 32px rgba(0,0,0,0.15); display: flex; flex-direction: column; overflow: hidden; }
-    .captcha-title { padding: 10px 16px; background: #fff; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 14px; }
-    .close-x { background: none; border: none; color: #8c8c8c; font-size: 20px; cursor: pointer; }
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.45); z-index: 2000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+    .captcha-popup { background: #fff; border-radius: 8px; width: 360px; box-shadow: 0 15px 40px rgba(0,0,0,0.18); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #e8e8e8; }
+    .captcha-title { padding: 14px 20px; background: #fff; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 15px; color: var(--text); }
+    .close-x { background: none; border: none; color: #bfbfbf; font-size: 22px; cursor: pointer; transition: color 0.2s; }
+    .close-x:hover { color: var(--error); }
     .captcha-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-    .captcha-header { padding: 16px; background: #fafafa; border-bottom: 1px solid #f0f0f0; }
-    .captcha-image-box { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-    #captcha-img { height: 40px; border: 1px solid #eee; border-radius: 2px; }
-    .refresh-btn { background: none; border: none; color: var(--primary); cursor: pointer; font-size: 18px; }
-    .captcha-guide { font-size: 11px; color: #8c8c8c; }
-    .captcha-main-area { flex: 1; display: flex; padding: 12px; gap: 12px; overflow: hidden; }
-    .captcha-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(5, 1fr); gap: 6px; }
-    .captcha-btn { background: #fff; border: 1px solid #f0f0f0; border-radius: 2px; font-size: 12px; color: #595959; cursor: pointer; font-family: 'SF Mono', monospace; display: flex; align-items: center; justify-content: center; }
-    .captcha-btn:hover { border-color: var(--primary); color: var(--primary); }
-    .captcha-slider-box { width: 20px; display: flex; justify-content: center; }
-    #captcha-nav-slider { -webkit-appearance: none; width: 4px; height: 100%; background: #e8e8e8; border-radius: 2px; outline: none; writing-mode: bt-lr; -webkit-appearance: slider-vertical; appearance: slider-vertical; transform: rotate(180deg); }
-    #captcha-nav-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #fff; border: 2px solid var(--primary); border-radius: 50%; cursor: pointer; }
-    .captcha-footer { padding: 8px; border-top: 1px solid #f0f0f0; text-align: center; }
-    .cancel-btn { background: none; border: none; color: #bfbfbf; cursor: pointer; font-size: 12px; }
+    .captcha-header { padding: 20px; background: #fafafa; border-bottom: 1px solid #f0f0f0; display: flex; flex-direction: column; align-items: center; }
+    .captcha-image-box { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; position: relative; width: 100%; justify-content: center; }
+    #captcha-img { height: 48px; border: 1px solid #d9d9d9; border-radius: 4px; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .refresh-btn { background: #fff; border: 1px solid #d9d9d9; color: var(--text-subtle); cursor: pointer; font-size: 18px; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .refresh-btn:hover { color: var(--primary); border-color: var(--primary); box-shadow: 0 2px 6px rgba(22,119,255,0.15); }
+    .captcha-guide { font-size: 12px; color: #8c8c8c; text-align: center; }
+    .captcha-main-area { flex: 1; display: flex; padding: 16px; gap: 16px; overflow: hidden; background: #fff; }
+    .captcha-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(5, 1fr); gap: 8px; }
+    .captcha-btn { background: #fff; border: 1px solid #f0f0f0; border-radius: 4px; font-size: 13px; color: #595959; cursor: pointer; font-family: 'SF Mono', 'Roboto Mono', monospace; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .captcha-btn:hover { border-color: var(--primary); color: var(--primary); background: rgba(22,119,255,0.02); transform: translateY(-1px); }
+    .captcha-slider-box { width: 24px; display: flex; justify-content: center; padding: 4px 0; }
+    #captcha-nav-slider { -webkit-appearance: none; width: 6px; height: 100%; background: #f0f0f0; border-radius: 3px; outline: none; writing-mode: bt-lr; -webkit-appearance: slider-vertical; appearance: slider-vertical; transform: rotate(180deg); }
+    #captcha-nav-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: #fff; border: 2px solid var(--primary); border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+    .captcha-footer { padding: 12px 20px; border-top: 1px solid #f0f0f0; text-align: center; background: #fafafa; }
+    .cancel-btn { width: 80px; height: 32px; background: #fff; border: 1px solid #d9d9d9; border-radius: 4px; color: #595959; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+    .cancel-btn:hover { border-color: var(--primary); color: var(--primary); }
 
     .spinner { width: 28px; height: 28px; border: 2px solid #f3f3f3; border-top: 2px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -219,7 +222,7 @@
         const errorText = document.getElementById('error-text');
         const loading = document.getElementById('loading-overlay');
 
-        let isLoginMode = true; // 默认设为登录模式
+        let isLoginMode = true;
         let tempToken = "";
         let isSetup = false;
         const apiUrl = import.meta.env.PUBLIC_API_URL || '';
@@ -337,13 +340,11 @@
         document.getElementById('close-captcha-x').addEventListener('click', closeFunc);
         document.getElementById('close-captcha-btn').addEventListener('click', closeFunc);
 
-        // 发送验证码倒计时逻辑
         let countdownTimer: any = null;
         function startCountdown() {
             let seconds = 60;
             sendCodeBtn.disabled = true;
             sendCodeBtn.textContent = `${seconds}s`;
-            
             if (countdownTimer) clearInterval(countdownTimer);
             countdownTimer = setInterval(() => {
                 seconds--;
@@ -366,15 +367,12 @@
                     headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
                     body: authpb.SendEmailCodeRequest.encode(req).finish()
                 });
-                const buffer = await res.arrayBuffer();
-                const result = authpb.SendEmailCodeResponse.decode(new Uint8Array(buffer));
-                if (result.code !== 200) {
-                    showError(`${result.msg} (ID: ${result.traceId})`);
-                } else {
-                    showSuccess(result.msg || "已发送");
-                    startCountdown(); // 成功发送后开启倒计时
-                }
-            } catch (e) { showError("发送失败"); } finally { loading.classList.add('hidden'); }
+                const result = await handleFetchResponse(res, authpb.SendEmailCodeResponse);
+                showSuccess(result.msg || "已发送");
+                startCountdown();
+            } catch (e) { 
+                showError(e.message || "发送失败", (e as any).code, (e as any).traceId); 
+            } finally { loading.classList.add('hidden'); }
         }
 
         async function verifyPoW(input) {
@@ -395,31 +393,22 @@
             try {
                 let body, responseClass;
                 if (isLoginMode) {
-                    const req = authpb.LoginRequest.fromObject({
-                        username: rawData.username,
-                        password: rawData.password
-                    });
+                    if (!rawData.username) { showError("请输入用户名"); return; }
+                    if (!rawData.password) { showError("请输入密码"); return; }
+                    const req = authpb.LoginRequest.fromObject({ username: rawData.username, password: rawData.password });
                     body = authpb.LoginRequest.encode(req).finish();
                     responseClass = authpb.LoginResponse;
                 } else {
+                    if (!rawData.email) { showError("请输入邮箱地址"); return; }
+                    if (!rawData.age) { showError("请输入年龄"); return; }
+                    if (!rawData.password) { showError("请输入密码"); return; }
+                    if (rawData.password !== rawData['confirm-password']) { showError("两次输入的密码不一致"); return; }
+                    if (!rawData.code) { showError("请输入 PoW 验证码"); return; }
                     const isValid = await verifyPoW(rawData.code as string);
-                    if (!isValid) {
-                        showError("算力证明无效：哈希摘要未满足难度目标");
-                        loading.classList.add('hidden');
-                        return;
-                    }
-                    if (rawData.password !== rawData['confirm-password']) {
-                        showError("两次输入的密码不一致");
-                        loading.classList.add('hidden');
-                        return;
-                    }
-
+                    if (!isValid) { showError("算力证明无效：哈希摘要未满足难度目标"); return; }
                     const req = authpb.RegisterRequest.fromObject({
-                        username: rawData.username,
-                        email: rawData.email,
-                        age: parseInt(rawData.age as string),
-                        password: rawData.password,
-                        code: rawData.code
+                        username: rawData.username, email: rawData.email, age: parseInt(rawData.age as string),
+                        password: rawData.password, code: rawData.code
                     });
                     body = authpb.RegisterRequest.encode(req).finish();
                     responseClass = authpb.RegisterResponse;
@@ -433,57 +422,48 @@
                 });
                 const result = await handleFetchResponse(response, responseClass);
                 
-                if (result.code !== 200) {
-                    showError(`${result.msg} (ID: ${result.traceId})`);
-                } else {
-                    if (isLoginMode) {
-                        const { setup_2fa, require_2fa, tempToken: tToken } = result.data || {};
-                        if (setup_2fa || require_2fa) {
-                            tempToken = tToken;
-                            isSetup = setup_2fa;
-                            authView.classList.add('hidden');
-                            twofaView.classList.remove('hidden');
-                            twofaMsg.textContent = isSetup ? "首次登录，请设置生物识别凭证" : "请使用生物识别验证身份";
-                            twofaBtn.textContent = isSetup ? "立即设置" : "立即验证";
-                        } else {
-                            location.reload();
-                        }
+                if (isLoginMode) {
+                    const { setup_2fa, require_2fa, tempToken: tToken } = result.data || {};
+                    if (setup_2fa || require_2fa) {
+                        tempToken = tToken;
+                        isSetup = setup_2fa;
+                        authView.classList.add('hidden');
+                        twofaView.classList.remove('hidden');
+                        twofaMsg.textContent = isSetup ? "首次登录，请设置生物识别凭证" : "请使用生物识别验证身份";
+                        twofaBtn.textContent = isSetup ? "立即设置" : "立即验证";
                     } else {
-                        isLoginMode = true;
-                        updateUI();
-                        showSuccess("注册成功，请登录");
+                        location.reload();
                     }
+                } else {
+                    isLoginMode = true;
+                    updateUI();
+                    showSuccess("注册成功，请登录");
                 }
             } catch (e) {
-                console.error(e);
-                showError("请求失败: " + (e.message || "网络错误"));
+                showError(e.message || "请求失败", (e as any).code, (e as any).traceId);
             } finally {
                 loading.classList.add('hidden');
             }
         });
 
         twofaBtn.addEventListener('click', async () => {
-            console.log("WebAuthn start. Mode:", isSetup ? "Registration" : "Login");
             hideAlerts();
             loading.classList.remove('hidden');
             try {
                 if (isSetup) {
                     const res = await fetch(`${apiUrl}/api/webauthn/register/options`, { 
-                        credentials: 'include',
-                        headers: { 'X-Trace-Id': traceId }
+                        credentials: 'include', headers: { 'X-Trace-Id': traceId }
                     });
                     const json = await handleFetchResponse(res, authpb.GetWebAuthnRegistrationOptionsResponse);
                     const credential = await create(JSON.parse(json.optionsJson));
-
                     const vRes = await fetch(`${apiUrl}/api/webauthn/register/verify`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
                         body: authpb.VerifyWebAuthnRegistrationRequest.encode({ credentialJson: JSON.stringify(credential) }).finish(),
                         credentials: 'include'
                     });
-                    const vResult = await handleFetchResponse(vRes, authpb.VerifyWebAuthnRegistrationResponse);
-                    if (vResult.code === 200) location.reload();
-                    else showError(vResult.msg || "注册验证失败");
+                    await handleFetchResponse(vRes, authpb.VerifyWebAuthnRegistrationResponse);
+                    location.reload();
                 } else {
                     const res = await fetch(`${apiUrl}/api/webauthn/login/options`, {
                         method: 'POST',
@@ -493,31 +473,32 @@
                     });
                     const json = await handleFetchResponse(res, authpb.GetWebAuthnLoginOptionsResponse);
                     const credential = await get(JSON.parse(json.optionsJson));
-
                     const vRes = await fetch(`${apiUrl}/api/webauthn/login/verify`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
                         body: authpb.VerifyWebAuthnLoginRequest.encode({ tempToken, credentialJson: JSON.stringify(credential) }).finish(),
                         credentials: 'include'
                     });
-                    const vResult = await handleFetchResponse(vRes, authpb.VerifyWebAuthnLoginResponse);
-                    if (vResult.code === 200) location.reload();
-                    else showError(vResult.msg || "登录验证失败");
+                    await handleFetchResponse(vRes, authpb.VerifyWebAuthnLoginResponse);
+                    location.reload();
                 }
             } catch (e) { 
-                console.error("WebAuthn Error:", e);
-                showError("验证取消或失败: " + (e.message || "未知错误")); 
+                showError(e.message || "验证失败", (e as any).code, (e as any).traceId); 
             } finally { 
                 loading.classList.add('hidden'); 
             }
         });
 
-        function showError(msg) { 
+        function showError(msg, code = 0, tid = "") { 
             loading.classList.add('hidden');
-            errorText.textContent = msg; 
+            let displayMsg = msg;
+            // 只有当是系统错误 (>=500) 或未知错误 (code=0且有tid) 时才显示 Trace ID
+            if (tid && (code >= 500 || code === 0) && !msg.includes("请输入") && !msg.includes("一致")) {
+                displayMsg += ` (ID: ${tid})`;
+            }
+            errorText.textContent = displayMsg; 
             errorAlert.classList.remove('hidden'); 
             successAlert.classList.add('hidden');
-            // 自动滚动到错误信息
             errorAlert.scrollIntoView({ behavior: 'smooth', block: 'end' });
         }
 
@@ -528,9 +509,24 @@
         }
 
         async function handleFetchResponse(response, responseClass) {
+            const contentType = response.headers.get('content-type');
+            const isProto = contentType && contentType.includes('application/x-protobuf');
+            if (isProto) {
+                const buffer = await response.arrayBuffer();
+                const decoded = responseClass.decode(new Uint8Array(buffer));
+                if (!response.ok || (decoded.code && decoded.code !== 200)) {
+                    const err = new Error(decoded.msg || `服务器错误 (${response.status})`);
+                    (err as any).code = decoded.code || response.status;
+                    (err as any).traceId = decoded.traceId;
+                    throw err;
+                }
+                return decoded;
+            }
             if (!response.ok) {
                 const text = await response.text();
-                throw new Error(`请求失败 (${response.status}): ${text || '未知错误'}`);
+                const err = new Error(text || `请求失败 (${response.status})`);
+                (err as any).code = response.status;
+                throw err;
             }
             const buffer = await response.arrayBuffer();
             return responseClass.decode(new Uint8Array(buffer));
@@ -542,7 +538,7 @@
                 fetchNewCaptcha(); 
                 captchaModal.classList.remove('hidden'); 
                 renderGrid(); 
-            } else showError("请输入邮箱"); 
+            } else showError("请输入邮箱地址"); 
         });
     });
 </script>
