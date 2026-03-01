@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"sync"
 
 	"foolsignup/internal/db"
@@ -26,10 +29,28 @@ var (
 func getWebAuthn() *webauthn.WebAuthn {
 	waOnce.Do(func() {
 		var err error
+		apiURL := os.Getenv("PUBLIC_API_URL")
+		rpID := "localhost"
+		origin := "http://localhost:4321"
+
+		if apiURL != "" {
+			origin = apiURL
+			u, err := url.Parse(apiURL)
+			if err == nil {
+				// 移除端口号以获得 RPID
+				rpID = u.Hostname()
+			}
+		}
+
+		// Cloudflare 环境下，如果 apiURL 是 https，确保 origin 也是 https
+		if strings.HasPrefix(origin, "https://") {
+			// WebAuthn 要求 origin 必须包含协议和端口（如果是标准端口可省略）
+		}
+
 		webAuthn, err = webauthn.New(&webauthn.Config{
 			RPDisplayName:         "FoolSignUp RP",
-			RPID:                  "localhost",
-			RPOrigins:             []string{"http://localhost:4321"},
+			RPID:                  rpID,
+			RPOrigins:             []string{origin},
 			AttestationPreference: protocol.PreferNoAttestation,
 		})
 		if err != nil {
