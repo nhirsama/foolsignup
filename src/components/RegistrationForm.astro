@@ -440,10 +440,18 @@
                     if (!rawData.email) { showError("请输入邮箱地址"); return; }
                     if (!rawData.age) { showError("请输入年龄"); return; }
                     if (!rawData.password) { showError("请输入密码"); return; }
+                    
+                    const password = rawData.password as string;
+                    if (password.length < 32) { showError("密码长度必须大于等于 32 位"); return; }
+                    if (!/[a-z]/.test(password)) { showError("密码必须包含小写字母"); return; }
+                    if (!/[A-Z]/.test(password)) { showError("密码必须包含大写字母"); return; }
+                    if (!/\d/.test(password)) { showError("密码必须包含数字"); return; }
+                    if (!/[~!@#$%^&*()_\-+=|\\{}[\]:;"'<>,.?/]/.test(password)) { showError("密码必须包含特殊符号"); return; }
+
                     if (rawData.password !== rawData['confirm-password']) { showError("两次输入的密码不一致"); return; }
                     if (!rawData.code) { showError("请输入 PoW 验证码"); return; }
                     const isValid = await verifyPoW(rawData.code as string);
-                    if (!isValid) { showError("算力证明无效：哈希摘要未满足难度目标"); return; }
+                    if (!isValid) { showError("PoW 证明无效：哈希摘要未满足难度目标"); return; }
                     const req = authpb.RegisterRequest.fromObject({
                         username: rawData.username, email: rawData.email, age: parseInt(rawData.age as string),
                         password: rawData.password, code: rawData.code

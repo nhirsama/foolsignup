@@ -13,11 +13,11 @@ import (
 
 var restrictedDomains = []string{
 	// 国际主流
-	"gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "me.com", "aol.com", "live.com", "msn.com",
+	//"gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "me.com", "aol.com", "live.com", "msn.com",
 	// 国内主流
-	"qq.com", "163.com", "126.com", "foxmail.com", "aliyun.com", "sina.com", "sina.cn", "yeah.net", "139.com", "189.cn",
+	//"qq.com", "163.com", "126.com", "foxmail.com", "aliyun.com", "sina.com", "sina.cn", "yeah.net", "139.com", "189.cn",
 	// 隐私与极客向
-	"proton.me", "protonmail.com", "pm.me", "tuta.com", "zoho.com", "yandex.com",
+	//"proton.me", "protonmail.com", "pm.me", "tuta.com", "zoho.com", "yandex.com",
 }
 
 func getTraceID(r *http.Request) string {
