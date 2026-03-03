@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@github/webauthn-json": "^2.1.1",
-    "astro": "^5.17.1",
+    "astro": "^5.18.0",
     "protobufjs": "^8.0.0"
   },
   "devDependencies": {

@@ -69,7 +69,8 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 	html := fmt.Sprintf(`您的证明字符串前缀为: <b>%s</b><br><br>
 	<b>验证要求：</b><br>
 	请寻找一个以此前缀开头的扩展字符串，并确保其 SHA-256 哈希摘要满足前导 20 位零比特位限制 (Difficulty Target)。<br><br>
-	计算完成后，请将包含前缀在内的完整证明字符串粘贴至验证码输入框。`, challenge)
+	计算完成后，请将包含前缀在内的完整证明字符串粘贴至验证码输入框。<br><br>
+    请在 2 小时内完成验证。如果这不是您的操作，请忽略此邮件。`, challenge)
 
 	if err := sender.Send(req.Email, subject, html); err != nil {
 		res.Code = http.StatusInternalServerError
