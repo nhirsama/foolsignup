@@ -5,7 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 
 	"foolsignup/internal/db"
@@ -73,6 +76,16 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
     请在 2 小时内完成验证。如果这不是您的操作，请忽略此邮件。`, challenge)
 
 	if err := sender.Send(req.Email, subject, html); err != nil {
+		if !isMailEnvConfigured() {
+			log.Printf("mail: MAIL_API_* 未正确配置，请在后端日志中查看。trace_id=%s", res.TraceId)
+			log.Printf("mail: fallback email begin\nTo: %s\nSubject: %s\nHTML:\n%s\nmail: fallback email end", req.Email, subject, html)
+			res.Code = http.StatusOK
+			res.Msg = "验证码已发送"
+			sendProto(w, res)
+			return
+		}
+
+		log.Printf("mail: 发送失败。trace_id=%s email=%s err=%v", res.TraceId, req.Email, err)
 		res.Code = http.StatusInternalServerError
 		res.Msg = "邮件发送失败"
 		sendProto(w, res)
@@ -97,4 +110,20 @@ func VerifyPoW(input string) bool {
 	sum := sha256.Sum256([]byte(input))
 	hash := hex.EncodeToString(sum[:])
 	return strings.HasPrefix(hash, "00000")
+}
+
+func isMailEnvConfigured() bool {
+	endpoint := strings.TrimSpace(os.Getenv("MAIL_API_ENDPOINT"))
+	apiKey := strings.TrimSpace(os.Getenv("MAIL_API_KEY"))
+	from := strings.TrimSpace(os.Getenv("MAIL_FROM"))
+
+	if endpoint == "" || apiKey == "" || from == "" {
+		return false
+	}
+
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	return u.Scheme != "" && u.Host != ""
 }
