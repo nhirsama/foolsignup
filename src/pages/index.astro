@@ -15,6 +15,42 @@ import RegistrationForm from '../components/RegistrationForm.astro';
 		justify-content: center;
 		align-items: center;
 		min-height: 100vh;
-		background-color: #f8fafc;
+		padding: 40px 24px;
+		position: relative;
+		overflow: hidden;
+	}
+
+	main::before,
+	main::after {
+		content: '';
+		position: fixed;
+		border-radius: 999px;
+		filter: blur(40px);
+		pointer-events: none;
+	}
+
+	main::before {
+		width: 420px;
+		height: 420px;
+		top: 3vh;
+		left: -120px;
+		background: rgba(245, 158, 11, 0.18);
+	}
+
+	main::after {
+		width: 520px;
+		height: 520px;
+		right: -140px;
+		bottom: -120px;
+		background: rgba(15, 118, 110, 0.16);
+	}
+
+	@media (max-width: 640px) {
+		main {
+			padding: 16px;
+			align-items: center;
+			justify-content: center;
+			min-height: 100dvh;
+		}
 	}
 </style>
