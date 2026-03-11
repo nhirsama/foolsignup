@@ -1,10 +1,10 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"foolsignup/internal/db"
 	authpb "foolsignup/internal/pb/auth/v1"
@@ -38,7 +38,13 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// 密码验证成功，检查 2FA 状态
 	has2fa := db.Has2FA(id)
-	tempToken := fmt.Sprintf("temp_%d", id)
+	tempToken, err := issueTempAuthToken(id, 5*time.Minute)
+	if err != nil {
+		res.Code = http.StatusInternalServerError
+		res.Msg = "临时会话创建失败"
+		sendProto(w, res)
+		return
+	}
 
 	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
 	isSecure := strings.HasPrefix(allowedOrigin, "https://")
@@ -79,18 +85,10 @@ func HandleMe(w http.ResponseWriter, r *http.Request) {
 		TraceId: getTraceID(r),
 	}
 
-	cookie, err := r.Cookie("uip_session")
-	if err != nil {
+	_, username, ok := getSessionFromRequest(r)
+	if !ok {
 		res.Code = http.StatusUnauthorized
 		res.Msg = "未授权"
-		sendProto(w, res)
-		return
-	}
-
-	parts := strings.Split(cookie.Value, "_")
-	if len(parts) < 3 {
-		res.Code = http.StatusUnauthorized
-		res.Msg = "会话无效"
 		sendProto(w, res)
 		return
 	}
@@ -98,7 +96,7 @@ func HandleMe(w http.ResponseWriter, r *http.Request) {
 	res.Code = http.StatusOK
 	res.Msg = "success"
 	res.Data = &authpb.GetMeResponse_Data{
-		Username: parts[2],
+		Username: username,
 	}
 
 	sendProto(w, res)
@@ -107,6 +105,9 @@ func HandleMe(w http.ResponseWriter, r *http.Request) {
 // HandleLogout 清除会话 Cookie。
 func HandleLogout(w http.ResponseWriter, r *http.Request) {
 	setCorsHeaders(w)
+	if cookie, err := r.Cookie("uip_session"); err == nil {
+		clearSessionToken(cookie.Value)
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "uip_session",
 		Value:    "",

@@ -5,3 +5,5 @@
 /.astro
 /todo.md
 /data
+/dist
+/.cache
