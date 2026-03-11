@@ -60,12 +60,20 @@ const { title } = Astro.props;
 	html, body {
 		margin: 0;
 		padding: 0;
-		height: 100%;
+	}
+	html {
+		min-height: 100%;
+		background-color: var(--bg-color);
+	}
+	body {
+		min-height: 100dvh;
 		font-family: 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif;
 		background:
 			radial-gradient(circle at top, rgba(255, 255, 255, 0.92), transparent 34%),
 			linear-gradient(135deg, #f5f7ef 0%, #e7f3f0 42%, #edf4ff 100%);
 		background-color: var(--bg-color);
+		background-attachment: fixed;
+		background-repeat: no-repeat;
 		color: var(--text-color);
 		-webkit-font-smoothing: antialiased;
 		text-rendering: optimizeLegibility;

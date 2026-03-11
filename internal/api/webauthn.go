@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"foolsignup/internal/db"
 	authpb "foolsignup/internal/pb/auth/v1"
@@ -22,10 +23,16 @@ import (
 var (
 	webAuthn *webauthn.WebAuthn
 	waOnce   sync.Once
-	// 存储正在进行的会话数据
-	sessionStore = make(map[string]*webauthn.SessionData)
+	// 存储正在进行的 WebAuthn 会话，按临时 token 绑定，避免依赖客户端可控 Trace ID
+	sessionStore = make(map[string]*webAuthnSessionState)
 	sessionMu    sync.RWMutex
 )
+
+type webAuthnSessionState struct {
+	Registration *webauthn.SessionData
+	Login        *webauthn.SessionData
+	ExpiresAt    time.Time
+}
 
 func getWebAuthn() *webauthn.WebAuthn {
 	waOnce.Do(func() {
@@ -74,7 +81,7 @@ func HandleGetWebAuthnRegistrationOptions(w http.ResponseWriter, r *http.Request
 	}
 	res := &authpb.GetWebAuthnRegistrationOptionsResponse{TraceId: getTraceID(r)}
 
-	userID, ok := getTempUserID(r)
+	tempToken, userID, ok := getTempAuthTokenAndUserID(r)
 	if !ok {
 		res.Code = http.StatusUnauthorized
 		res.Msg = "请先登录"
@@ -98,7 +105,13 @@ func HandleGetWebAuthnRegistrationOptions(w http.ResponseWriter, r *http.Request
 	}
 
 	sessionMu.Lock()
-	sessionStore[getTraceID(r)] = session
+	state, exists := sessionStore[tempToken]
+	if !exists || state == nil || time.Now().After(state.ExpiresAt) {
+		state = &webAuthnSessionState{}
+	}
+	state.Registration = session
+	state.ExpiresAt = time.Now().Add(5 * time.Minute)
+	sessionStore[tempToken] = state
 	sessionMu.Unlock()
 
 	optionsJSON, _ := json.Marshal(options)
@@ -122,7 +135,7 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := getTempUserID(r)
+	tempToken, userID, ok := getTempAuthTokenAndUserID(r)
 	if !ok {
 		res.Code = http.StatusUnauthorized
 		res.Msg = "会话超时"
@@ -131,9 +144,9 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionMu.RLock()
-	session, exists := sessionStore[getTraceID(r)]
+	state, exists := sessionStore[tempToken]
 	sessionMu.RUnlock()
-	if !exists {
+	if !exists || state == nil || state.Registration == nil || time.Now().After(state.ExpiresAt) {
 		res.Code = http.StatusBadRequest
 		res.Msg = "验证超时，请重试"
 		sendProto(w, res)
@@ -153,7 +166,7 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	credential, err := getWebAuthn().CreateCredential(user, *session, parsedResponse)
+	credential, err := getWebAuthn().CreateCredential(user, *state.Registration, parsedResponse)
 	if err != nil {
 		res.Code = http.StatusBadRequest
 		res.Msg = "验证失败"
@@ -170,20 +183,24 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, userID, username)
+	sessionMu.Lock()
+	if current, ok := sessionStore[tempToken]; ok {
+		current.Registration = nil
+		if current.Login == nil {
+			delete(sessionStore, tempToken)
+		}
+	}
+	sessionMu.Unlock()
+
+	if err := setSessionCookie(w, userID, username, tempToken); err != nil {
+		res.Code = http.StatusInternalServerError
+		res.Msg = "会话创建失败"
+		sendProto(w, res)
+		return
+	}
 	res.Code = http.StatusOK
 	res.Msg = "2FA 设置成功"
 	sendProto(w, res)
-}
-
-func getTempUserID(r *http.Request) (int, bool) {
-	cookie, err := r.Cookie("uip_temp_auth")
-	if err != nil {
-		return 0, false
-	}
-	var id int
-	_, err = fmt.Sscanf(cookie.Value, "temp_%d", &id)
-	return id, err == nil
 }
 
 func HandleGetWebAuthnLoginOptions(w http.ResponseWriter, r *http.Request) {
@@ -200,10 +217,16 @@ func HandleGetWebAuthnLoginOptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := getTempUserID(r)
+	tempToken, userID, ok := getTempAuthTokenAndUserID(r)
 	if !ok {
 		res.Code = http.StatusUnauthorized
 		res.Msg = "会话超时"
+		sendProto(w, res)
+		return
+	}
+	if req.TempToken != "" && req.TempToken != tempToken {
+		res.Code = http.StatusUnauthorized
+		res.Msg = "临时凭证不匹配"
 		sendProto(w, res)
 		return
 	}
@@ -221,7 +244,13 @@ func HandleGetWebAuthnLoginOptions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionMu.Lock()
-	sessionStore[getTraceID(r)] = session
+	state, exists := sessionStore[tempToken]
+	if !exists || state == nil || time.Now().After(state.ExpiresAt) {
+		state = &webAuthnSessionState{}
+	}
+	state.Login = session
+	state.ExpiresAt = time.Now().Add(5 * time.Minute)
+	sessionStore[tempToken] = state
 	sessionMu.Unlock()
 
 	optionsJSON, _ := json.Marshal(options)
@@ -245,18 +274,24 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := getTempUserID(r)
+	tempToken, userID, ok := getTempAuthTokenAndUserID(r)
 	if !ok {
 		res.Code = http.StatusUnauthorized
 		res.Msg = "会话超时"
 		sendProto(w, res)
 		return
 	}
+	if req.TempToken == "" || req.TempToken != tempToken {
+		res.Code = http.StatusUnauthorized
+		res.Msg = "临时凭证不匹配"
+		sendProto(w, res)
+		return
+	}
 
 	sessionMu.RLock()
-	session, exists := sessionStore[getTraceID(r)]
+	state, exists := sessionStore[tempToken]
 	sessionMu.RUnlock()
-	if !exists {
+	if !exists || state == nil || state.Login == nil || time.Now().After(state.ExpiresAt) {
 		res.Code = http.StatusBadRequest
 		res.Msg = "验证超时"
 		sendProto(w, res)
@@ -277,7 +312,7 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	credential, err := getWebAuthn().ValidateLogin(user, *session, parsedResponse)
+	credential, err := getWebAuthn().ValidateLogin(user, *state.Login, parsedResponse)
 	if err != nil {
 		log.Printf("[WebAuthn] 验证失败! TraceID: %s, UserID: %d, Error: %v", getTraceID(r), userID, err)
 		res.Code = http.StatusUnauthorized
@@ -289,19 +324,37 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 	// 成功验证后更新计数器
 	_ = db.UpdateCredentialSignCount(credential.ID, credential.Authenticator.SignCount)
 
-	setSessionCookie(w, userID, username)
+	sessionMu.Lock()
+	if current, ok := sessionStore[tempToken]; ok {
+		current.Login = nil
+		if current.Registration == nil {
+			delete(sessionStore, tempToken)
+		}
+	}
+	sessionMu.Unlock()
+
+	if err := setSessionCookie(w, userID, username, tempToken); err != nil {
+		res.Code = http.StatusInternalServerError
+		res.Msg = "会话创建失败"
+		sendProto(w, res)
+		return
+	}
 	res.Code = http.StatusOK
 	res.Msg = "登录成功"
 	sendProto(w, res)
 }
 
-func setSessionCookie(w http.ResponseWriter, id int, username string) {
+func setSessionCookie(w http.ResponseWriter, id int, username, tempToken string) error {
 	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
 	isSecure := strings.HasPrefix(allowedOrigin, "https://")
+	sessionToken, err := issueSessionToken(id, username, 24*time.Hour)
+	if err != nil {
+		return err
+	}
 
 	cookie := &http.Cookie{
 		Name:     "uip_session",
-		Value:    fmt.Sprintf("sess_%d_%s", id, username),
+		Value:    sessionToken,
 		Path:     "/",
 		HttpOnly: true,
 		MaxAge:   86400,
@@ -324,4 +377,6 @@ func setSessionCookie(w http.ResponseWriter, id int, username string) {
 		tempCookie.SameSite = http.SameSiteNoneMode
 	}
 	http.SetCookie(w, tempCookie)
+	clearTempAuthToken(tempToken)
+	return nil
 }
