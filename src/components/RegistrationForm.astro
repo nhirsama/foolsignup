@@ -55,6 +55,12 @@
                         <input type="password" id="password" name="password" placeholder="请输入您的密码" />
                     </div>
 
+                    <div class="password-complexity hidden" id="password-complexity-box" aria-hidden="true">
+                        <div class="password-complexity-spectrum">
+                            <span class="password-complexity-fill is-idle" id="password-complexity-fill"></span>
+                        </div>
+                    </div>
+
                     <div class="form-item hidden" id="confirm-password-field">
                         <label for="confirm-password">确认密码</label>
                         <input type="password" id="confirm-password" name="confirm-password" placeholder="请再次输入您的密码" />
@@ -457,6 +463,58 @@
         background: rgba(248, 250, 252, 0.94);
         color: #475569;
         cursor: default;
+    }
+
+    .password-complexity {
+        margin: -4px 0 16px;
+        padding: 4px 2px 2px;
+    }
+
+    .password-complexity-spectrum {
+        position: relative;
+        width: 100%;
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(203, 213, 225, 0.54);
+    }
+
+    .password-complexity-spectrum::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, rgba(248, 113, 113, 0.32), rgba(251, 191, 36, 0.22), rgba(74, 222, 128, 0.28));
+        opacity: 0.85;
+    }
+
+    .password-complexity-fill {
+        position: relative;
+        display: block;
+        height: 100%;
+        width: 0;
+        border-radius: 999px;
+        transition: width 0.22s ease, background 0.22s ease, box-shadow 0.22s ease;
+    }
+
+    .password-complexity-fill.is-idle {
+        width: 0;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    .password-complexity-fill.is-simple {
+        background: linear-gradient(90deg, rgba(248, 113, 113, 0.94), rgba(239, 68, 68, 0.96));
+        box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.1), 0 6px 14px rgba(239, 68, 68, 0.18);
+    }
+
+    .password-complexity-fill.is-medium {
+        background: linear-gradient(90deg, rgba(251, 191, 36, 0.95), rgba(245, 158, 11, 0.96));
+        box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.1), 0 6px 14px rgba(245, 158, 11, 0.16);
+    }
+
+    .password-complexity-fill.is-complex {
+        background: linear-gradient(90deg, rgba(74, 222, 128, 0.92), rgba(22, 163, 74, 0.92));
+        box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.08), 0 6px 14px rgba(34, 197, 94, 0.16);
     }
 
     .input-with-action {
@@ -1381,503 +1439,7 @@
 </style>
 
 <script>
-    import { foolsignup } from '../lib/pb/auth.js';
-    import { create, get } from '@github/webauthn-json';
-    const authpb = foolsignup.auth.v1;
+    import { initRegistrationForm } from '../lib/registration-form';
 
-    document.addEventListener('DOMContentLoaded', () => {
-        const form = document.getElementById('uip-form') as HTMLFormElement;
-        const authView = document.getElementById('auth-view');
-        const twofaView = document.getElementById('twofa-view');
-        const twofaBtn = document.getElementById('webauthn-btn') as HTMLButtonElement;
-        const twofaMsg = document.getElementById('twofa-msg');
-        const backToLogin = document.getElementById('back-to-login');
-        
-        const userInput = document.getElementById('username') as HTMLInputElement;
-        const toggleLink = document.getElementById('toggle-link');
-        const sendCodeBtn = document.getElementById('send-code-btn') as HTMLButtonElement;
-        const emailInput = document.getElementById('email') as HTMLInputElement;
-        const ageInput = document.getElementById('age') as HTMLInputElement;
-        const passwordInput = document.getElementById('password') as HTMLInputElement;
-        const confirmPasswordInput = document.getElementById('confirm-password') as HTMLInputElement;
-        const confirmPasswordField = document.getElementById('confirm-password-field');
-        
-        const captchaModal = document.getElementById('captcha-modal');
-        const captchaImg = document.getElementById('captcha-img') as HTMLImageElement;
-        const captchaGrid = document.getElementById('captcha-grid');
-        const captchaSlider = document.getElementById('captcha-nav-slider') as HTMLInputElement;
-
-        const successAlert = document.getElementById('success-alert');
-        const errorAlert = document.getElementById('error-alert');
-        const errorText = document.getElementById('error-text');
-        const loading = document.getElementById('loading-overlay');
-
-        let isLoginMode = true; 
-        let tempToken = "";
-        let isSetup = false;
-        const apiUrl = import.meta.env.PUBLIC_API_URL || '';
-        const traceId = Math.random().toString(36).substring(2, 15);
-        const commonEmailDomains = new Set([
-            'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com', 'me.com', 'aol.com', 'live.com', 'msn.com',
-            'qq.com', '163.com', '126.com', 'foxmail.com', 'aliyun.com', 'sina.com', 'sina.cn', 'yeah.net', '139.com', '189.cn',
-            'proton.me', 'protonmail.com', 'pm.me', 'tuta.com', 'tutanota.com', 'zoho.com', 'yandex.com'
-        ]);
-        const sendCooldownState = {
-            email: '',
-            emailUntil: 0,
-            domain: '',
-            domainUntil: 0,
-        };
-        let countdownTimer: any = null;
-
-        const dashboardView = document.getElementById('dashboard-view');
-        const dashUsername = document.getElementById('dash-username');
-        const logoutBtn = document.getElementById('logout-btn');
-
-        function parseEmailAddress(value) {
-            const normalized = value.trim().toLowerCase();
-            if (!normalized) return null;
-            const parts = normalized.split('@');
-            if (parts.length !== 2) return null;
-            const [local, domain] = parts;
-            if (!local || !domain) return null;
-            return { email: normalized, domain };
-        }
-
-        function normalizeEmailFieldValue() {
-            const parsed = parseEmailAddress(emailInput.value);
-            emailInput.value = parsed ? parsed.email : emailInput.value.trim();
-            return parsed;
-        }
-
-        function isCommonEmailDomain(domain) {
-            return commonEmailDomains.has(domain);
-        }
-
-        function getRemainingSeconds(until) {
-            return Math.max(0, Math.ceil((until - Date.now()) / 1000));
-        }
-
-        function getSendCodeCooldown(parsed = parseEmailAddress(emailInput.value)) {
-            if (!parsed) return 0;
-
-            let remaining = 0;
-            if (parsed.email === sendCooldownState.email) {
-                remaining = Math.max(remaining, getRemainingSeconds(sendCooldownState.emailUntil));
-            }
-            if (!isCommonEmailDomain(parsed.domain) && parsed.domain === sendCooldownState.domain) {
-                remaining = Math.max(remaining, getRemainingSeconds(sendCooldownState.domainUntil));
-            }
-            return remaining;
-        }
-
-        function ensureCountdownTimer() {
-            if (countdownTimer) return;
-
-            countdownTimer = setInterval(() => {
-                refreshSendCodeButton();
-                if (getSendCodeCooldown() <= 0) {
-                    clearInterval(countdownTimer);
-                    countdownTimer = null;
-                }
-            }, 1000);
-        }
-
-        function refreshSendCodeButton() {
-            const remaining = getSendCodeCooldown();
-            if (remaining > 0) {
-                sendCodeBtn.disabled = true;
-                sendCodeBtn.textContent = `${remaining}s`;
-                ensureCountdownTimer();
-                return;
-            }
-
-            sendCodeBtn.disabled = false;
-            sendCodeBtn.textContent = "发送验证码";
-            if (countdownTimer) {
-                clearInterval(countdownTimer);
-                countdownTimer = null;
-            }
-        }
-
-        function setEmailCooldown(parsed, seconds) {
-            sendCooldownState.email = parsed.email;
-            sendCooldownState.emailUntil = Math.max(sendCooldownState.emailUntil, Date.now() + seconds * 1000);
-        }
-
-        function setDomainCooldown(parsed, seconds) {
-            sendCooldownState.domain = parsed.domain;
-            sendCooldownState.domainUntil = Math.max(sendCooldownState.domainUntil, Date.now() + seconds * 1000);
-        }
-
-        function applySendCodeSuccessCooldown(parsed) {
-            setEmailCooldown(parsed, 60);
-            if (!isCommonEmailDomain(parsed.domain)) {
-                setDomainCooldown(parsed, 30);
-            }
-            refreshSendCodeButton();
-        }
-
-        function syncCooldownFromRateLimit(parsed, message) {
-            const secondsMatch = message?.match(/(\d+)\s*秒/);
-            const seconds = secondsMatch ? parseInt(secondsMatch[1], 10) : 0;
-            if (!seconds) return;
-
-            if (message.includes("邮箱域名")) {
-                setDomainCooldown(parsed, seconds);
-            } else {
-                setEmailCooldown(parsed, seconds);
-            }
-            refreshSendCodeButton();
-        }
-
-        // 年龄步进器逻辑：移除正数限制，允许负数
-        document.getElementById('age-minus').addEventListener('click', () => {
-            const val = parseInt(ageInput.value) || 0;
-            ageInput.value = (val - 1).toString();
-        });
-        document.getElementById('age-plus').addEventListener('click', () => {
-            const val = parseInt(ageInput.value) || 0;
-            ageInput.value = (val + 1).toString();
-        });
-
-        // 验证码滑动条微调逻辑
-        document.getElementById('slider-up').addEventListener('click', () => {
-            const val = parseInt(captchaSlider.value);
-            if (val > 0) {
-                captchaSlider.value = (val - 1).toString();
-                renderGrid();
-            }
-        });
-        document.getElementById('slider-down').addEventListener('click', () => {
-            const val = parseInt(captchaSlider.value);
-            const max = parseInt(captchaSlider.max);
-            if (val < max) {
-                captchaSlider.value = (val + 1).toString();
-                renderGrid();
-            }
-        });
-
-        async function checkLogin() {
-            try {
-                const res = await fetch(`${apiUrl}/api/me`, { credentials: 'include', headers: { 'X-Trace-Id': traceId } });
-                if (res.status === 200) {
-                    const buffer = await res.arrayBuffer();
-                    const result = authpb.GetMeResponse.decode(new Uint8Array(buffer));
-                    if (result.code === 200) {
-                        authView.classList.add('hidden');
-                        dashboardView.classList.remove('hidden');
-                        dashUsername.textContent = result.data.username;
-                    }
-                }
-            } catch (e) { console.error("Check login failed", e); }
-        }
-        checkLogin();
-
-        logoutBtn.addEventListener('click', async () => {
-            await fetch(`${apiUrl}/api/logout`, { credentials: 'include', headers: { 'X-Trace-Id': traceId } });
-            location.reload();
-        });
-
-        function hideAlerts() {
-            errorAlert.classList.add('hidden');
-            successAlert.classList.add('hidden');
-        }
-
-        form.addEventListener('input', hideAlerts);
-        emailInput.addEventListener('input', refreshSendCodeButton);
-        emailInput.addEventListener('blur', () => {
-            normalizeEmailFieldValue();
-            refreshSendCodeButton();
-        });
-
-        function updateUI() {
-            hideAlerts();
-            form.reset();
-            authView.classList.remove('hidden');
-            twofaView.classList.add('hidden');
-
-            document.getElementById('form-title').textContent = isLoginMode ? "账号登录" : "账号注册";
-            document.getElementById('email-field').classList.toggle('hidden', isLoginMode);
-            document.getElementById('code-field').classList.toggle('hidden', isLoginMode);
-            document.getElementById('age-field').classList.toggle('hidden', isLoginMode);
-            confirmPasswordField.classList.toggle('hidden', isLoginMode);
-            toggleLink.textContent = isLoginMode ? "没有账号？点击注册" : "已有账号？点击登录";
-            
-            if (!isLoginMode) {
-                userInput.value = `User_${Math.floor(Math.random()*899999+100000)}`;
-                userInput.readOnly = true;
-                userInput.tabIndex = -1;
-                ageInput.value = ""; // 移除默认值 18
-            } else {
-                userInput.value = "";
-                userInput.readOnly = false;
-                userInput.tabIndex = 0;
-                userInput.placeholder = "请输入您的用户名";
-            }
-
-            refreshSendCodeButton();
-        }
-        updateUI();
-
-        toggleLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            isLoginMode = !isLoginMode;
-            updateUI();
-        });
-
-        backToLogin.addEventListener('click', (e) => {
-            e.preventDefault();
-            updateUI();
-        });
-
-        function renderGrid() {
-            const startIdx = parseInt(captchaSlider.value) * 4;
-            let html = '';
-            for (let i = 0; i < 20; i++) {
-                const num = startIdx + i;
-                const val = num.toString().padStart(6, '0');
-                html += `<button type="button" class="captcha-btn">${val}</button>`;
-            }
-            captchaGrid.innerHTML = html;
-        }
-        captchaSlider.addEventListener('input', renderGrid);
-
-        async function fetchNewCaptcha() {
-            try {
-                const res = await fetch(`${apiUrl}/api/captcha`);
-                const buffer = await res.arrayBuffer();
-                const json = authpb.GetCaptchaResponse.decode(new Uint8Array(buffer));
-                if (json.code === 200) {
-                    captchaImg.src = json.data.image;
-                    captchaImg.dataset.key = json.data.captchaKey;
-                }
-            } catch (e) { console.error(e); }
-        }
-
-        document.getElementById('refresh-captcha').addEventListener('click', fetchNewCaptcha);
-
-        captchaGrid.addEventListener('click', (e) => {
-            const btn = (e.target as HTMLElement).closest('.captcha-btn') as HTMLButtonElement;
-            if (!btn) return;
-            captchaModal.classList.add('hidden');
-            executeSendCode(btn.textContent, captchaImg.dataset.key);
-        });
-
-        const closeFunc = () => captchaModal.classList.add('hidden');
-        document.getElementById('close-captcha-x').addEventListener('click', closeFunc);
-        document.getElementById('close-captcha-btn').addEventListener('click', closeFunc);
-
-        async function executeSendCode(val, key) {
-            const parsedEmail = normalizeEmailFieldValue();
-            if (!parsedEmail) {
-                showError("请输入有效的邮箱地址");
-                return;
-            }
-
-            loading.classList.remove('hidden');
-            try {
-                const req = authpb.SendEmailCodeRequest.create({ email: parsedEmail.email, captchaKey: key, captchaValue: val });
-                const res = await fetch(`${apiUrl}/api/send-code`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
-                    body: authpb.SendEmailCodeRequest.encode(req).finish()
-                });
-                const result = await handleFetchResponse(res, authpb.SendEmailCodeResponse);
-                showSuccess(result.msg || "已发送");
-                applySendCodeSuccessCooldown(parsedEmail);
-            } catch (e) { 
-                if ((e as any).code === 429) {
-                    syncCooldownFromRateLimit(parsedEmail, e.message || "");
-                }
-                showError(e.message || "发送失败", (e as any).code, (e as any).traceId); 
-            } finally { loading.classList.add('hidden'); }
-        }
-
-        async function verifyPoW(input) {
-            const msgUint8 = new TextEncoder().encode(input);
-            const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-            return hashHex.startsWith('00000');
-        }
-
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            hideAlerts();
-            const formData = new FormData(form);
-            const rawData = Object.fromEntries(formData.entries());
-
-            loading.classList.remove('hidden');
-            try {
-                let body, responseClass;
-                if (isLoginMode) {
-                    if (!rawData.username) { showError("请输入用户名"); return; }
-                    if (!rawData.password) { showError("请输入密码"); return; }
-                    const req = authpb.LoginRequest.fromObject({ username: rawData.username, password: rawData.password });
-                    body = authpb.LoginRequest.encode(req).finish();
-                    responseClass = authpb.LoginResponse;
-                } else {
-                    if (!rawData.email) { showError("请输入邮箱地址"); return; }
-                    if (!rawData.age) { showError("请输入年龄"); return; }
-                    if (!rawData.password) { showError("请输入密码"); return; }
-
-                    const parsedEmail = normalizeEmailFieldValue();
-                    if (!parsedEmail) { showError("请输入有效的邮箱地址"); return; }
-                    rawData.email = parsedEmail.email;
-                    
-                    const password = rawData.password as string;
-                    if (password.length < 32) { showError("密码长度必须大于等于 32 位"); return; }
-                    if (!/[a-z]/.test(password)) { showError("密码必须包含小写字母"); return; }
-                    if (!/[A-Z]/.test(password)) { showError("密码必须包含大写字母"); return; }
-                    if (!/\d/.test(password)) { showError("密码必须包含数字"); return; }
-                    if (!/[~!@#$%^&*()_\-+=|\\{}[\]:;"'<>,.?/]/.test(password)) { showError("密码必须包含特殊符号"); return; }
-
-                    if (rawData.password !== rawData['confirm-password']) { showError("两次输入的密码不一致"); return; }
-                    if (!rawData.code) { showError("请输入 PoW 验证码"); return; }
-                    const isValid = await verifyPoW(rawData.code as string);
-                    if (!isValid) { showError("PoW 证明无效：哈希摘要未满足难度目标"); return; }
-                    const req = authpb.RegisterRequest.fromObject({
-                        username: rawData.username, email: parsedEmail.email, age: parseInt(rawData.age as string),
-                        password: rawData.password, code: rawData.code
-                    });
-                    body = authpb.RegisterRequest.encode(req).finish();
-                    responseClass = authpb.RegisterResponse;
-                }
-
-                const response = await fetch(`${apiUrl}${isLoginMode ? '/api/login' : '/api/register'}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
-                    body: body,
-                    credentials: 'include'
-                });
-                const result = await handleFetchResponse(response, responseClass);
-                
-                if (isLoginMode) {
-                    const { setup_2fa, require_2fa, tempToken: tToken } = result.data || {};
-                    if (setup_2fa || require_2fa) {
-                        tempToken = tToken;
-                        isSetup = setup_2fa;
-                        authView.classList.add('hidden');
-                        twofaView.classList.remove('hidden');
-                        twofaMsg.textContent = isSetup ? "首次登录，请设置生物识别凭证" : "请使用生物识别验证身份";
-                        twofaBtn.textContent = isSetup ? "立即设置" : "立即验证";
-                    } else {
-                        location.reload();
-                    }
-                } else {
-                    isLoginMode = true;
-                    updateUI();
-                    showSuccess("注册成功，请登录");
-                }
-            } catch (e) {
-                showError(e.message || "请求失败", (e as any).code, (e as any).traceId);
-            } finally {
-                loading.classList.add('hidden');
-            }
-        });
-
-        twofaBtn.addEventListener('click', async () => {
-            hideAlerts();
-            loading.classList.remove('hidden');
-            try {
-                if (isSetup) {
-                    const res = await fetch(`${apiUrl}/api/webauthn/register/options`, { 
-                        credentials: 'include', headers: { 'X-Trace-Id': traceId }
-                    });
-                    const json = await handleFetchResponse(res, authpb.GetWebAuthnRegistrationOptionsResponse);
-                    const credential = await create(JSON.parse(json.optionsJson));
-                    const vRes = await fetch(`${apiUrl}/api/webauthn/register/verify`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
-                        body: authpb.VerifyWebAuthnRegistrationRequest.encode({ credentialJson: JSON.stringify(credential) }).finish(),
-                        credentials: 'include'
-                    });
-                    await handleFetchResponse(vRes, authpb.VerifyWebAuthnRegistrationResponse);
-                    location.reload();
-                } else {
-                    const res = await fetch(`${apiUrl}/api/webauthn/login/options`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
-                        body: authpb.GetWebAuthnLoginOptionsRequest.encode({ tempToken }).finish(),
-                        credentials: 'include'
-                    });
-                    const json = await handleFetchResponse(res, authpb.GetWebAuthnLoginOptionsResponse);
-                    const credential = await get(JSON.parse(json.optionsJson));
-                    const vRes = await fetch(`${apiUrl}/api/webauthn/login/verify`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
-                        body: authpb.VerifyWebAuthnLoginRequest.encode({ tempToken, credentialJson: JSON.stringify(credential) }).finish(),
-                        credentials: 'include'
-                    });
-                    await handleFetchResponse(vRes, authpb.VerifyWebAuthnLoginResponse);
-                    location.reload();
-                }
-            } catch (e) { 
-                showError(e.message || "验证失败", (e as any).code, (e as any).traceId); 
-            } finally { 
-                loading.classList.add('hidden'); 
-            }
-        });
-
-        function showError(msg, code = 0, tid = "") { 
-            loading.classList.add('hidden');
-            let displayMsg = msg;
-            if (tid && (code >= 500 || code === 0) && !msg.includes("请输入") && !msg.includes("一致")) {
-                displayMsg += ` (ID: ${tid})`;
-            }
-            errorText.textContent = displayMsg; 
-            errorAlert.classList.remove('hidden'); 
-            successAlert.classList.add('hidden');
-            errorAlert.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        }
-
-        function showSuccess(msg) { 
-            successAlert.textContent = msg; 
-            successAlert.classList.remove('hidden'); 
-            errorAlert.classList.add('hidden');
-        }
-
-        async function handleFetchResponse(response, responseClass) {
-            const contentType = response.headers.get('content-type');
-            const isProto = contentType && contentType.includes('application/x-protobuf');
-            if (isProto) {
-                const buffer = await response.arrayBuffer();
-                const decoded = responseClass.decode(new Uint8Array(buffer));
-                if (!response.ok || (decoded.code && decoded.code !== 200)) {
-                    const err = new Error(decoded.msg || `服务器错误 (${response.status})`);
-                    (err as any).code = decoded.code || response.status;
-                    (err as any).traceId = decoded.traceId;
-                    throw err;
-                }
-                return decoded;
-            }
-            if (!response.ok) {
-                const text = await response.text();
-                const err = new Error(text || `请求失败 (${response.status})`);
-                (err as any).code = response.status;
-                throw err;
-            }
-            const buffer = await response.arrayBuffer();
-            return responseClass.decode(new Uint8Array(buffer));
-        }
-
-        sendCodeBtn.addEventListener('click', () => { 
-            const parsedEmail = normalizeEmailFieldValue();
-            if (!parsedEmail) {
-                showError(emailInput.value ? "请输入有效的邮箱地址" : "请输入邮箱地址");
-                return;
-            }
-
-            if (getSendCodeCooldown(parsedEmail) > 0) {
-                refreshSendCodeButton();
-                return;
-            }
-
-            hideAlerts(); 
-            fetchNewCaptcha(); 
-            captchaModal.classList.remove('hidden'); 
-            renderGrid(); 
-        });
-    });
+    initRegistrationForm();
 </script>

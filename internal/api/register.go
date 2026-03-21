@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"foolsignup/internal/db"
+	"foolsignup/internal/password"
 	authpb "foolsignup/internal/pb/auth/v1"
 )
 
@@ -32,6 +33,13 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		res.Code = http.StatusBadRequest
 		res.Msg = "请输入有效的邮箱地址"
+		sendProto(w, res)
+		return
+	}
+
+	if msg := password.ValidateRegistrationPassword(req.Password); msg != "" {
+		res.Code = http.StatusBadRequest
+		res.Msg = msg
 		sendProto(w, res)
 		return
 	}
