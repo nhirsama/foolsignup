@@ -23,6 +23,13 @@ type CooldownState = {
     domainUntil: number;
 };
 
+type RegisterStage = 'email' | 'verify' | 'details';
+
+type SendCodeThrottle = {
+    remaining: number;
+    scope: '' | 'email' | 'domain';
+};
+
 type ProtoDecoder = {
     decode(input: Uint8Array): any;
 };
@@ -72,14 +79,30 @@ export function initRegistrationForm(): void {
         const backToLogin = requireElement<HTMLElement>('back-to-login');
         const logoutBtn = requireElement<HTMLButtonElement>('logout-btn');
         const dashUsername = requireElement<HTMLElement>('dash-username');
+        const formTitle = requireElement<HTMLElement>('form-title');
+        const formSubtitle = requireElement<HTMLElement>('form-subtitle');
 
+        const usernameField = requireElement<HTMLElement>('username-field');
         const userInput = requireElement<HTMLInputElement>('username');
         const toggleLink = requireElement<HTMLElement>('toggle-link');
+        const formActions = requireElement<HTMLElement>('form-actions');
+        const submitBtn = requireElement<HTMLButtonElement>('submit-btn');
+        const registerBackBtn = requireElement<HTMLButtonElement>('register-back-btn');
         const sendCodeBtn = requireElement<HTMLButtonElement>('send-code-btn');
+        const emailField = requireElement<HTMLElement>('email-field');
+        const emailAction = emailField.querySelector<HTMLElement>('.input-with-action');
+        if (!emailAction) {
+            throw new Error('missing email action container');
+        }
         const emailInput = requireElement<HTMLInputElement>('email');
+        const codeField = requireElement<HTMLElement>('code-field');
+        const codeInput = requireElement<HTMLInputElement>('code');
+        const ageField = requireElement<HTMLElement>('age-field');
         const ageInput = requireElement<HTMLInputElement>('age');
+        const passwordField = requireElement<HTMLElement>('password-field');
         const passwordInput = requireElement<HTMLInputElement>('password');
         const confirmPasswordField = requireElement<HTMLElement>('confirm-password-field');
+        const confirmPasswordInput = requireElement<HTMLInputElement>('confirm-password');
         const passwordComplexityBox = requireElement<HTMLElement>('password-complexity-box');
         const passwordComplexityFill = requireElement<HTMLElement>('password-complexity-fill');
 
@@ -99,7 +122,19 @@ export function initRegistrationForm(): void {
         let isLoginMode = true;
         let isSetup = false;
         let tempToken = '';
+        let registerStage: RegisterStage = 'email';
+        let isSeededEmailValue = false;
+        let pendingStageAfterSendCode: RegisterStage | null = null;
         let countdownTimer: number | null = null;
+
+        const registerStageTitle: Record<RegisterStage, string> = {
+            email: '创建账号',
+            verify: '输入验证码',
+            details: '设置账号',
+        };
+
+        const defaultRegisterEmail = 'name@example.com';
+        const generateRegistrationUsername = (): string => `User_${Math.floor(Math.random() * 899999 + 100000)}`;
 
         const sendCooldownState: CooldownState = {
             email: '',
@@ -114,29 +149,47 @@ export function initRegistrationForm(): void {
             return parsed;
         };
 
-        const getSendCodeCooldown = (parsed = parseEmailAddress(emailInput.value)): number => {
-            if (!parsed) return 0;
+        const syncEmailSeedStyle = (): void => {
+            emailInput.classList.toggle('is-seeded', isSeededEmailValue);
+        };
 
-            let remaining = 0;
-            if (parsed.email === sendCooldownState.email) {
-                remaining = Math.max(remaining, getRemainingSeconds(sendCooldownState.emailUntil));
-            }
-            if (!isCommonEmailDomain(parsed.domain) && parsed.domain === sendCooldownState.domain) {
-                remaining = Math.max(remaining, getRemainingSeconds(sendCooldownState.domainUntil));
+        const seedDefaultEmail = (): void => {
+            emailInput.value = defaultRegisterEmail;
+            isSeededEmailValue = true;
+            syncEmailSeedStyle();
+        };
+
+        const getSendCodeThrottle = (parsed = parseEmailAddress(emailInput.value)): SendCodeThrottle => {
+            if (!parsed) {
+                return { remaining: 0, scope: '' };
             }
 
-            return remaining;
+            const emailRemaining = parsed.email === sendCooldownState.email
+                ? getRemainingSeconds(sendCooldownState.emailUntil)
+                : 0;
+            const domainRemaining = !isCommonEmailDomain(parsed.domain) && parsed.domain === sendCooldownState.domain
+                ? getRemainingSeconds(sendCooldownState.domainUntil)
+                : 0;
+
+            if (emailRemaining >= domainRemaining && emailRemaining > 0) {
+                return { remaining: emailRemaining, scope: 'email' };
+            }
+            if (domainRemaining > 0) {
+                return { remaining: domainRemaining, scope: 'domain' };
+            }
+
+            return { remaining: 0, scope: '' };
         };
 
         const refreshSendCodeButton = (): void => {
-            const remaining = getSendCodeCooldown();
-            if (remaining > 0) {
+            const throttle = getSendCodeThrottle();
+            if (throttle.remaining > 0) {
                 sendCodeBtn.disabled = true;
-                sendCodeBtn.textContent = `${remaining}s`;
+                sendCodeBtn.textContent = `${throttle.remaining}s`;
                 if (!countdownTimer) {
                     countdownTimer = window.setInterval(() => {
                         refreshSendCodeButton();
-                        if (getSendCodeCooldown() <= 0 && countdownTimer) {
+                        if (getSendCodeThrottle().remaining <= 0 && countdownTimer) {
                             window.clearInterval(countdownTimer);
                             countdownTimer = null;
                         }
@@ -146,7 +199,7 @@ export function initRegistrationForm(): void {
             }
 
             sendCodeBtn.disabled = false;
-            sendCodeBtn.textContent = '发送验证码';
+            sendCodeBtn.textContent = registerStage === 'verify' ? '重新发送' : '发送验证码';
             if (countdownTimer) {
                 window.clearInterval(countdownTimer);
                 countdownTimer = null;
@@ -189,9 +242,44 @@ export function initRegistrationForm(): void {
             successAlert.classList.add('hidden');
         };
 
+        const focusFieldForStage = (): void => {
+            const target = isLoginMode
+                ? userInput
+                : registerStage === 'email'
+                    ? emailInput
+                    : registerStage === 'verify'
+                        ? codeInput
+                        : passwordInput;
+            window.requestAnimationFrame(() => {
+                target.focus({ preventScroll: true });
+                if (target === emailInput && registerStage === 'email' && isSeededEmailValue) {
+                    emailInput.setSelectionRange(0, 0);
+                }
+            });
+        };
+
+        const getFriendlyMessage = (msg: string): string => {
+            if (msg.includes('PoW') || msg.includes('证明字符串') || msg.includes('哈希摘要')) {
+                return '验证码无效，请重试';
+            }
+            if (msg.includes('验证码已过期')) {
+                return '验证码已失效，请重新获取';
+            }
+            if (msg.includes('密码复杂度不足')) {
+                return '密码强度不足';
+            }
+            if (msg.includes('该邮箱域名发送过于频繁')) {
+                return msg.replace('该邮箱域名', '该域名').replace('再试', '重试');
+            }
+            if (msg.includes('该邮箱发送过于频繁')) {
+                return msg.replace('该邮箱', '当前邮箱').replace('再试', '重试');
+            }
+            return msg;
+        };
+
         const showError = (msg: string, code = 0, tid = ''): void => {
             loading.classList.add('hidden');
-            let displayMsg = msg;
+            let displayMsg = getFriendlyMessage(msg);
             if (tid && (code >= 500 || code === 0) && !msg.includes('请输入') && !msg.includes('一致')) {
                 displayMsg += ` (ID: ${tid})`;
             }
@@ -209,7 +297,7 @@ export function initRegistrationForm(): void {
 
         const updatePasswordComplexityUI = (): PasswordComplexityResult => {
             const passwordValue = passwordInput.value;
-            if (isLoginMode || !passwordValue) {
+            if (isLoginMode || registerStage !== 'details' || !passwordValue) {
                 passwordComplexityBox.classList.add('hidden');
                 passwordComplexityFill.className = 'password-complexity-fill is-idle';
                 passwordComplexityFill.style.width = '0';
@@ -258,6 +346,60 @@ export function initRegistrationForm(): void {
             captchaGrid.innerHTML = html;
         };
 
+        const openCaptchaForSendCode = (nextStage: RegisterStage | null): void => {
+            pendingStageAfterSendCode = nextStage;
+            hideAlerts();
+            void fetchNewCaptcha();
+            captchaModal.classList.remove('hidden');
+            renderGrid();
+        };
+
+        const setRegisterStage = (nextStage: RegisterStage): void => {
+            registerStage = nextStage;
+
+            if (registerStage === 'details' && !userInput.value) {
+                userInput.value = generateRegistrationUsername();
+            }
+            if (registerStage === 'email' && !emailInput.value) {
+                seedDefaultEmail();
+            }
+
+            formTitle.textContent = registerStageTitle[registerStage];
+            formSubtitle.textContent = '';
+            formSubtitle.classList.add('hidden');
+
+            usernameField.classList.toggle('hidden', registerStage !== 'details');
+            emailField.classList.remove('hidden');
+            codeField.classList.toggle('hidden', registerStage !== 'verify');
+            ageField.classList.toggle('hidden', registerStage !== 'details');
+            passwordField.classList.toggle('hidden', registerStage !== 'details');
+            confirmPasswordField.classList.toggle('hidden', registerStage !== 'details');
+
+            emailInput.readOnly = registerStage !== 'email';
+            emailInput.tabIndex = registerStage === 'email' ? 0 : -1;
+            codeInput.tabIndex = registerStage === 'verify' ? 0 : -1;
+            userInput.tabIndex = -1;
+
+            sendCodeBtn.classList.toggle('hidden', registerStage !== 'verify');
+            emailAction.classList.toggle('is-single', registerStage !== 'verify');
+            formActions.classList.toggle('is-details-stage', registerStage === 'details');
+            registerBackBtn.classList.toggle('is-highlighted-action', registerStage === 'details');
+            submitBtn.classList.toggle('is-muted-action', registerStage === 'details');
+
+            submitBtn.textContent = registerStage === 'email'
+                ? '继续'
+                : registerStage === 'verify'
+                    ? '继续'
+                    : '创建账号';
+            registerBackBtn.classList.toggle('hidden', registerStage === 'email');
+            registerBackBtn.textContent = '返回';
+
+            refreshSendCodeButton();
+            updatePasswordComplexityUI();
+            syncEmailSeedStyle();
+            focusFieldForStage();
+        };
+
         const fetchNewCaptcha = async (): Promise<void> => {
             try {
                 const res = await fetch(`${apiUrl}/api/captcha`);
@@ -275,7 +417,7 @@ export function initRegistrationForm(): void {
         const executeSendCode = async (value: string, key: string): Promise<void> => {
             const parsedEmail = normalizeEmailFieldValue();
             if (!parsedEmail) {
-                showError('请输入有效的邮箱地址');
+                showError('请输入有效邮箱地址');
                 return;
             }
 
@@ -292,8 +434,13 @@ export function initRegistrationForm(): void {
                     body: authpb.SendEmailCodeRequest.encode(req).finish(),
                 });
                 const result = await handleFetchResponse(res, authpb.SendEmailCodeResponse);
-                showSuccess(result.msg || '已发送');
+                if (!pendingStageAfterSendCode) {
+                    showSuccess(getFriendlyMessage(result.msg || '验证码已发送'));
+                }
                 applySendCodeSuccessCooldown(parsedEmail);
+                if (!isLoginMode && pendingStageAfterSendCode) {
+                    setRegisterStage(pendingStageAfterSendCode);
+                }
             } catch (error) {
                 const err = error as Error & { code?: number; traceId?: string };
                 if (err.code === 429) {
@@ -301,6 +448,7 @@ export function initRegistrationForm(): void {
                 }
                 showError(err.message || '发送失败', err.code, err.traceId || '');
             } finally {
+                pendingStageAfterSendCode = null;
                 loading.classList.add('hidden');
             }
         };
@@ -339,28 +487,44 @@ export function initRegistrationForm(): void {
             form.reset();
             authView.classList.remove('hidden');
             twofaView.classList.add('hidden');
-
-            requireElement<HTMLElement>('form-title').textContent = isLoginMode ? '账号登录' : '账号注册';
-            requireElement<HTMLElement>('email-field').classList.toggle('hidden', isLoginMode);
-            requireElement<HTMLElement>('code-field').classList.toggle('hidden', isLoginMode);
-            requireElement<HTMLElement>('age-field').classList.toggle('hidden', isLoginMode);
-            confirmPasswordField.classList.toggle('hidden', isLoginMode);
             toggleLink.textContent = isLoginMode ? '没有账号？点击注册' : '已有账号？点击登录';
 
             if (!isLoginMode) {
-                userInput.value = `User_${Math.floor(Math.random() * 899999 + 100000)}`;
+                registerStage = 'email';
+                userInput.value = generateRegistrationUsername();
+                seedDefaultEmail();
                 userInput.readOnly = true;
                 userInput.tabIndex = -1;
                 ageInput.value = '';
+                setRegisterStage('email');
             } else {
+                formTitle.textContent = '账号登录';
+                formSubtitle.textContent = '管理您的个人身份及访问权限';
+                formSubtitle.classList.remove('hidden');
                 userInput.value = '';
                 userInput.readOnly = false;
                 userInput.tabIndex = 0;
-                userInput.placeholder = '请输入您的用户名';
+                userInput.placeholder = '输入用户名';
+                usernameField.classList.remove('hidden');
+                emailField.classList.add('hidden');
+                codeField.classList.add('hidden');
+                ageField.classList.add('hidden');
+                passwordField.classList.remove('hidden');
+                confirmPasswordField.classList.add('hidden');
+                registerBackBtn.classList.add('hidden');
+                sendCodeBtn.classList.add('hidden');
+                emailAction.classList.add('is-single');
+                formActions.classList.remove('is-details-stage');
+                registerBackBtn.classList.remove('is-highlighted-action');
+                submitBtn.classList.remove('is-muted-action');
+                submitBtn.textContent = '确认提交';
+                isSeededEmailValue = false;
             }
 
             refreshSendCodeButton();
             updatePasswordComplexityUI();
+            syncEmailSeedStyle();
+            focusFieldForStage();
         };
 
         requireElement<HTMLButtonElement>('age-minus').addEventListener('click', () => {
@@ -398,9 +562,19 @@ export function initRegistrationForm(): void {
         });
 
         form.addEventListener('input', hideAlerts);
-        emailInput.addEventListener('input', refreshSendCodeButton);
+        emailInput.addEventListener('input', () => {
+            if (isSeededEmailValue && emailInput.value !== defaultRegisterEmail) {
+                isSeededEmailValue = false;
+            }
+            syncEmailSeedStyle();
+            refreshSendCodeButton();
+        });
         emailInput.addEventListener('blur', () => {
             normalizeEmailFieldValue();
+            if (isSeededEmailValue && emailInput.value !== defaultRegisterEmail) {
+                isSeededEmailValue = false;
+            }
+            syncEmailSeedStyle();
             refreshSendCodeButton();
         });
         passwordInput.addEventListener('input', updatePasswordComplexityUI);
@@ -424,27 +598,44 @@ export function initRegistrationForm(): void {
         });
 
         const closeCaptcha = (): void => {
+            pendingStageAfterSendCode = null;
             captchaModal.classList.add('hidden');
         };
         requireElement<HTMLButtonElement>('close-captcha-x').addEventListener('click', closeCaptcha);
         requireElement<HTMLButtonElement>('close-captcha-btn').addEventListener('click', closeCaptcha);
 
         sendCodeBtn.addEventListener('click', () => {
-            const parsedEmail = normalizeEmailFieldValue();
-            if (!parsedEmail) {
-                showError(emailInput.value ? '请输入有效的邮箱地址' : '请输入邮箱地址');
+            if (isLoginMode || registerStage !== 'verify') {
                 return;
             }
 
-            if (getSendCodeCooldown(parsedEmail) > 0) {
+            const parsedEmail = normalizeEmailFieldValue();
+            if (!parsedEmail) {
+                showError(emailInput.value ? '请输入有效邮箱地址' : '请输入邮箱地址');
+                return;
+            }
+
+            if (getSendCodeThrottle(parsedEmail).remaining > 0) {
                 refreshSendCodeButton();
                 return;
             }
 
+            openCaptchaForSendCode(null);
+        });
+
+        registerBackBtn.addEventListener('click', () => {
             hideAlerts();
-            void fetchNewCaptcha();
-            captchaModal.classList.remove('hidden');
-            renderGrid();
+            if (registerStage === 'details') {
+                userInput.value = '';
+                ageInput.value = '';
+                passwordInput.value = '';
+                confirmPasswordInput.value = '';
+                updatePasswordComplexityUI();
+                setRegisterStage('verify');
+                return;
+            }
+
+            setRegisterStage('email');
         });
 
         form.addEventListener('submit', async (event) => {
@@ -452,7 +643,6 @@ export function initRegistrationForm(): void {
             hideAlerts();
 
             const rawData = Object.fromEntries(new FormData(form).entries());
-            loading.classList.remove('hidden');
 
             try {
                 let body: Uint8Array;
@@ -475,10 +665,46 @@ export function initRegistrationForm(): void {
                     body = authpb.LoginRequest.encode(req).finish();
                     responseClass = authpb.LoginResponse;
                 } else {
+                    const parsedEmail = normalizeEmailFieldValue();
                     if (!rawData.email) {
                         showError('请输入邮箱地址');
                         return;
                     }
+                    if (!parsedEmail) {
+                        showError('请输入有效邮箱地址');
+                        return;
+                    }
+
+                    if (registerStage === 'email') {
+                        const throttle = getSendCodeThrottle(parsedEmail);
+                        if (throttle.remaining > 0) {
+                            refreshSendCodeButton();
+                            if (throttle.scope === 'email') {
+                                setRegisterStage('verify');
+                            } else {
+                                showError(`该域名请求过于频繁，请 ${throttle.remaining} 秒后重试`);
+                            }
+                            return;
+                        }
+
+                        openCaptchaForSendCode('verify');
+                        return;
+                    }
+
+                    if (registerStage === 'verify') {
+                        if (!rawData.code) {
+                            showError('请输入验证码');
+                            return;
+                        }
+                        if (!(await verifyPoW(String(rawData.code)))) {
+                            showError('验证码无效，请重试');
+                            return;
+                        }
+
+                        setRegisterStage('details');
+                        return;
+                    }
+
                     if (!rawData.age) {
                         showError('请输入年龄');
                         return;
@@ -488,36 +714,30 @@ export function initRegistrationForm(): void {
                         return;
                     }
 
-                    const parsedEmail = normalizeEmailFieldValue();
-                    if (!parsedEmail) {
-                        showError('请输入有效的邮箱地址');
-                        return;
-                    }
-
                     const password = String(rawData.password);
                     const complexity = updatePasswordComplexityUI();
                     if (password.length < 32) {
-                        showError('密码长度必须大于等于 32 位');
+                        showError('密码长度至少为 32 位');
                         return;
                     }
                     if (!/[a-z]/.test(password)) {
-                        showError('密码必须包含小写字母');
+                        showError('密码需包含小写字母');
                         return;
                     }
                     if (!/[A-Z]/.test(password)) {
-                        showError('密码必须包含大写字母');
+                        showError('密码需包含大写字母');
                         return;
                     }
                     if (!/\d/.test(password)) {
-                        showError('密码必须包含数字');
+                        showError('密码需包含数字');
                         return;
                     }
                     if (!/[~!@#$%^&*()_\-+=|\\{}[\]:;"'<>,.?/]/.test(password)) {
-                        showError('密码必须包含特殊符号');
+                        showError('密码需包含特殊字符');
                         return;
                     }
                     if (complexity.level !== 'complex') {
-                        showError('密码复杂度不足，请重新设计');
+                        showError('密码强度不足');
                         return;
                     }
                     if (rawData.password !== rawData['confirm-password']) {
@@ -525,11 +745,11 @@ export function initRegistrationForm(): void {
                         return;
                     }
                     if (!rawData.code) {
-                        showError('请输入 PoW 验证码');
+                        showError('请输入验证码');
                         return;
                     }
                     if (!(await verifyPoW(String(rawData.code)))) {
-                        showError('PoW 证明无效：哈希摘要未满足难度目标');
+                        showError('验证码无效，请重试');
                         return;
                     }
 
@@ -544,6 +764,7 @@ export function initRegistrationForm(): void {
                     responseClass = authpb.RegisterResponse;
                 }
 
+                loading.classList.remove('hidden');
                 const response = await fetch(`${apiUrl}${isLoginMode ? '/api/login' : '/api/register'}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
@@ -567,11 +788,15 @@ export function initRegistrationForm(): void {
                 } else {
                     isLoginMode = true;
                     updateUI();
-                    showSuccess('注册成功，请登录');
+                    showSuccess('账号已创建，请登录');
                 }
             } catch (error) {
                 const err = error as Error & { code?: number; traceId?: string };
-                showError(err.message || '请求失败', err.code, err.traceId || '');
+                if (!isLoginMode && registerStage === 'details' && (err.message.includes('验证码') || err.message.includes('PoW'))) {
+                    codeInput.value = '';
+                    setRegisterStage('verify');
+                }
+                showError(err.message || '请求失败，请稍后重试', err.code, err.traceId || '');
             } finally {
                 loading.classList.add('hidden');
             }

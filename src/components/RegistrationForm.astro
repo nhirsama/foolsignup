@@ -23,22 +23,22 @@
                 </div>
 
                 <form id="uip-form">
-                    <div class="form-item">
+                    <div class="form-item" id="username-field">
                         <label for="username">用户名</label>
-                        <input type="text" id="username" name="username" placeholder="请输入您的用户名" />
+                        <input type="text" id="username" name="username" placeholder="设置用户名" />
                     </div>
 
                     <div class="form-item hidden" id="email-field">
                         <label for="email">邮箱地址</label>
                         <div class="input-with-action">
-                            <input type="email" id="email" name="email" placeholder="请输入电子邮箱" />
+                            <input type="email" id="email" name="email" autocomplete="email" spellcheck="false" />
                             <button type="button" id="send-code-btn" class="inline-button">发送验证码</button>
                         </div>
                     </div>
 
                     <div class="form-item hidden" id="code-field">
-                        <label for="code">PoW 验证码</label>
-                        <input type="text" id="code" name="code" placeholder="请输入证明字符串" />
+                        <label for="code">验证码</label>
+                        <input type="text" id="code" name="code" placeholder="输入验证码" />
                     </div>
 
                     <div class="form-item hidden" id="age-field">
@@ -50,9 +50,9 @@
                         </div>
                     </div>
 
-                    <div class="form-item">
+                    <div class="form-item" id="password-field">
                         <label for="password">密码</label>
-                        <input type="password" id="password" name="password" placeholder="请输入您的密码" />
+                        <input type="password" id="password" name="password" placeholder="设置密码" />
                     </div>
 
                     <div class="password-complexity hidden" id="password-complexity-box" aria-hidden="true">
@@ -63,10 +63,13 @@
 
                     <div class="form-item hidden" id="confirm-password-field">
                         <label for="confirm-password">确认密码</label>
-                        <input type="password" id="confirm-password" name="confirm-password" placeholder="请再次输入您的密码" />
+                        <input type="password" id="confirm-password" name="confirm-password" placeholder="再次输入密码" />
                     </div>
 
-                    <button type="submit" id="submit-btn" class="primary-button">确认提交</button>
+                    <div class="form-actions" id="form-actions">
+                        <button type="submit" id="submit-btn" class="primary-button">确认提交</button>
+                        <button type="button" id="register-back-btn" class="secondary-button hidden">返回上一步</button>
+                    </div>
 
                     <div class="form-toggle">
                         <a href="#" id="toggle-link">没有账号？点击注册</a>
@@ -524,8 +527,17 @@
         align-items: center;
     }
 
+    .input-with-action.is-single {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .input-with-action input {
         min-width: 0;
+    }
+
+    #email.is-seeded {
+        color: #94a3b8;
+        caret-color: var(--text);
     }
 
     .input-with-action .inline-button {
@@ -628,6 +640,18 @@
         box-shadow: 0 20px 44px rgba(11, 106, 103, 0.32);
     }
 
+    .form-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-top: 8px;
+    }
+
+    .form-actions .primary-button,
+    .form-actions .secondary-button {
+        margin-top: 0;
+    }
+
     .secondary-button,
     .cancel-btn {
         width: 100%;
@@ -645,6 +669,39 @@
     .cancel-btn:hover {
         transform: translateY(-1px);
         background: rgba(255, 255, 255, 0.92);
+    }
+
+    .form-actions.is-details-stage #register-back-btn {
+        order: -1;
+    }
+
+    #register-back-btn.is-highlighted-action {
+        border: 0;
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent 34%),
+            linear-gradient(135deg, var(--primary), var(--primary-strong));
+        color: #f8fafc;
+        box-shadow: 0 16px 34px rgba(11, 106, 103, 0.24);
+    }
+
+    #register-back-btn.is-highlighted-action:hover {
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent 34%),
+            linear-gradient(135deg, var(--primary), var(--primary-strong));
+        box-shadow: 0 20px 44px rgba(11, 106, 103, 0.32);
+    }
+
+    #submit-btn.is-muted-action {
+        height: 52px;
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        background: rgba(255, 255, 255, 0.74);
+        color: #334155;
+        box-shadow: none;
+    }
+
+    #submit-btn.is-muted-action:hover {
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: none;
     }
 
     .form-toggle {
