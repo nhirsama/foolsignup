@@ -28,8 +28,16 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	email, _, ok := normalizeEmailAddress(req.Email)
+	if !ok {
+		res.Code = http.StatusBadRequest
+		res.Msg = "请输入有效的邮箱地址"
+		sendProto(w, res)
+		return
+	}
+
 	// 1. PoW 挑战校验
-	challenge, ok := db.GetVerificationCode(req.Email)
+	challenge, ok := db.GetVerificationCode(email)
 	if !ok {
 		res.Code = http.StatusBadRequest
 		res.Msg = "验证码已过期"
@@ -47,7 +55,7 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. 执行标准审查
-	field, owner := db.CheckConflict(req.Username, req.Email, int(req.Age), req.Password)
+	field, owner := db.CheckConflict(req.Username, email, int(req.Age), req.Password)
 	if field != "" {
 		msg := fmt.Sprintf("%s已被占用", field)
 		if owner != "" && (field == "年龄" || field == "密码") {
@@ -60,23 +68,23 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. 到这里说明审查已通过。检查该邮箱是否为第一次将要成功注册。
-	count := db.GetRegistrationCount(req.Email)
+	count := db.GetRegistrationCount(email)
 	if count == 0 {
 		// 第一次尝试将要成功：创建一个虚假用户占用此密码。
 		if err := db.CreateBaitUser(req.Password, -1); err == nil {
-			_ = db.IncrementRegistrationCount(req.Email)
+			_ = db.IncrementRegistrationCount(email)
 			// 诱饵用户已创建，再次检查冲突以获取该诱饵用户的用户名
-			_, owner := db.CheckConflict(req.Username, req.Email, int(req.Age), req.Password)
+			_, owner := db.CheckConflict(req.Username, email, int(req.Age), req.Password)
 			res.Code = http.StatusConflict
 			res.Msg = fmt.Sprintf("密码已被用户 %s 占用", owner)
 			sendProto(w, res)
 			return
 		}
-		_ = db.IncrementRegistrationCount(req.Email)
+		_ = db.IncrementRegistrationCount(email)
 	}
 
 	// 5. 非第一次尝试或已执行过诱饵，允许保存真实用户
-	if err := db.SaveUser(req.Username, req.Email, int(req.Age), req.Password); err != nil {
+	if err := db.SaveUser(req.Username, email, int(req.Age), req.Password); err != nil {
 		res.Code = http.StatusInternalServerError
 		res.Msg = "服务器内部错误"
 		sendProto(w, res)

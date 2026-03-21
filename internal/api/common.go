@@ -11,13 +11,40 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var restrictedDomains = []string{
+var restrictedDomains = map[string]struct{}{
+	// 预留受限域名列表
+}
+
+var commonEmailDomains = map[string]struct{}{
 	// 国际主流
-	//"gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com", "me.com", "aol.com", "live.com", "msn.com",
+	"gmail.com":   {},
+	"outlook.com": {},
+	"hotmail.com": {},
+	"yahoo.com":   {},
+	"icloud.com":  {},
+	"me.com":      {},
+	"aol.com":     {},
+	"live.com":    {},
+	"msn.com":     {},
 	// 国内主流
-	//"qq.com", "163.com", "126.com", "foxmail.com", "aliyun.com", "sina.com", "sina.cn", "yeah.net", "139.com", "189.cn",
+	"qq.com":      {},
+	"163.com":     {},
+	"126.com":     {},
+	"foxmail.com": {},
+	"aliyun.com":  {},
+	"sina.com":    {},
+	"sina.cn":     {},
+	"yeah.net":    {},
+	"139.com":     {},
+	"189.cn":      {},
 	// 隐私与极客向
-	//"proton.me", "protonmail.com", "pm.me", "tuta.com", "zoho.com", "yandex.com",
+	"proton.me":      {},
+	"protonmail.com": {},
+	"pm.me":          {},
+	"tuta.com":       {},
+	"tutanota.com":   {},
+	"zoho.com":       {},
+	"yandex.com":     {},
 }
 
 func getTraceID(r *http.Request) string {
@@ -82,16 +109,30 @@ func sendProto(w http.ResponseWriter, msg proto.Message) {
 	}
 }
 
-func isRestrictedDomain(email string) bool {
-	parts := strings.Split(email, "@")
-	if len(parts) != 2 {
+func normalizeEmailAddress(email string) (string, string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(email))
+	if normalized == "" || strings.Count(normalized, "@") != 1 {
+		return "", "", false
+	}
+
+	local, domain, ok := strings.Cut(normalized, "@")
+	if !ok || local == "" || domain == "" {
+		return "", "", false
+	}
+
+	return normalized, domain, true
+}
+
+func isRestrictedDomain(domain string) bool {
+	if domain == "" {
 		return true
 	}
-	domain := strings.ToLower(parts[1])
-	for _, d := range restrictedDomains {
-		if domain == d {
-			return true
-		}
-	}
-	return false
+
+	_, restricted := restrictedDomains[domain]
+	return restricted
+}
+
+func isCommonEmailDomain(domain string) bool {
+	_, common := commonEmailDomains[domain]
+	return common
 }

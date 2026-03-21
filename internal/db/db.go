@@ -21,6 +21,8 @@ var (
 	// Instance is the global database connection instance.
 	Instance *sql.DB
 	once     sync.Once
+
+	sendThrottleMu sync.Mutex
 )
 
 // InitDB initializes the database connection and creates necessary tables.
@@ -58,6 +60,12 @@ func InitDB() {
 			code TEXT NOT NULL,
 			expires_at DATETIME NOT NULL,
 			PRIMARY KEY (email, code)
+		);
+		CREATE TABLE IF NOT EXISTS email_send_throttles (
+			scope TEXT NOT NULL,
+			identifier TEXT NOT NULL,
+			last_sent_unix_ms INTEGER NOT NULL,
+			PRIMARY KEY (scope, identifier)
 		);
 		CREATE TABLE IF NOT EXISTS registration_attempts (
 			email TEXT PRIMARY KEY,
@@ -159,6 +167,85 @@ func SaveVerificationCode(email, code string) error {
 	expiresAt := time.Now().Add(2 * time.Hour)
 	query := "INSERT INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?) ON CONFLICT(email, code) DO UPDATE SET expires_at = excluded.expires_at"
 	_, err := Instance.Exec(query, email, code, expiresAt)
+	return err
+}
+
+// ReserveVerificationEmailSend 在发送前检查并占用邮箱/域名维度的发送窗口。
+func ReserveVerificationEmailSend(email, domain string, applyDomainLimit bool) (string, time.Duration, error) {
+	const (
+		scopeEmail  = "email"
+		scopeDomain = "domain"
+	)
+
+	now := time.Now()
+	sendThrottleMu.Lock()
+	defer sendThrottleMu.Unlock()
+
+	tx, err := Instance.Begin()
+	if err != nil {
+		return "", 0, err
+	}
+	defer tx.Rollback()
+
+	emailRemaining, err := getThrottleRemaining(tx, scopeEmail, email, now, 60*time.Second)
+	if err != nil {
+		return "", 0, err
+	}
+	if emailRemaining > 0 {
+		return scopeEmail, emailRemaining, nil
+	}
+
+	if applyDomainLimit {
+		domainRemaining, err := getThrottleRemaining(tx, scopeDomain, domain, now, 30*time.Second)
+		if err != nil {
+			return "", 0, err
+		}
+		if domainRemaining > 0 {
+			return scopeDomain, domainRemaining, nil
+		}
+	}
+
+	if err := upsertThrottle(tx, scopeEmail, email, now.UnixMilli()); err != nil {
+		return "", 0, err
+	}
+	if applyDomainLimit {
+		if err := upsertThrottle(tx, scopeDomain, domain, now.UnixMilli()); err != nil {
+			return "", 0, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", 0, err
+	}
+
+	return "", 0, nil
+}
+
+func getThrottleRemaining(tx *sql.Tx, scope, identifier string, now time.Time, window time.Duration) (time.Duration, error) {
+	var lastSentUnixMs int64
+	err := tx.QueryRow("SELECT last_sent_unix_ms FROM email_send_throttles WHERE scope = ? AND identifier = ?", scope, identifier).Scan(&lastSentUnixMs)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	elapsed := now.Sub(time.UnixMilli(lastSentUnixMs))
+	if elapsed >= window {
+		return 0, nil
+	}
+
+	return window - elapsed, nil
+}
+
+func upsertThrottle(tx *sql.Tx, scope, identifier string, lastSentUnixMs int64) error {
+	query := `
+		INSERT INTO email_send_throttles (scope, identifier, last_sent_unix_ms)
+		VALUES (?, ?, ?)
+		ON CONFLICT(scope, identifier) DO UPDATE SET last_sent_unix_ms = excluded.last_sent_unix_ms
+	`
+	_, err := tx.Exec(query, scope, identifier, lastSentUnixMs)
 	return err
 }
 

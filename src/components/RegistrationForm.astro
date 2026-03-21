@@ -1417,10 +1417,119 @@
         let isSetup = false;
         const apiUrl = import.meta.env.PUBLIC_API_URL || '';
         const traceId = Math.random().toString(36).substring(2, 15);
+        const commonEmailDomains = new Set([
+            'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com', 'me.com', 'aol.com', 'live.com', 'msn.com',
+            'qq.com', '163.com', '126.com', 'foxmail.com', 'aliyun.com', 'sina.com', 'sina.cn', 'yeah.net', '139.com', '189.cn',
+            'proton.me', 'protonmail.com', 'pm.me', 'tuta.com', 'tutanota.com', 'zoho.com', 'yandex.com'
+        ]);
+        const sendCooldownState = {
+            email: '',
+            emailUntil: 0,
+            domain: '',
+            domainUntil: 0,
+        };
+        let countdownTimer: any = null;
 
         const dashboardView = document.getElementById('dashboard-view');
         const dashUsername = document.getElementById('dash-username');
         const logoutBtn = document.getElementById('logout-btn');
+
+        function parseEmailAddress(value) {
+            const normalized = value.trim().toLowerCase();
+            if (!normalized) return null;
+            const parts = normalized.split('@');
+            if (parts.length !== 2) return null;
+            const [local, domain] = parts;
+            if (!local || !domain) return null;
+            return { email: normalized, domain };
+        }
+
+        function normalizeEmailFieldValue() {
+            const parsed = parseEmailAddress(emailInput.value);
+            emailInput.value = parsed ? parsed.email : emailInput.value.trim();
+            return parsed;
+        }
+
+        function isCommonEmailDomain(domain) {
+            return commonEmailDomains.has(domain);
+        }
+
+        function getRemainingSeconds(until) {
+            return Math.max(0, Math.ceil((until - Date.now()) / 1000));
+        }
+
+        function getSendCodeCooldown(parsed = parseEmailAddress(emailInput.value)) {
+            if (!parsed) return 0;
+
+            let remaining = 0;
+            if (parsed.email === sendCooldownState.email) {
+                remaining = Math.max(remaining, getRemainingSeconds(sendCooldownState.emailUntil));
+            }
+            if (!isCommonEmailDomain(parsed.domain) && parsed.domain === sendCooldownState.domain) {
+                remaining = Math.max(remaining, getRemainingSeconds(sendCooldownState.domainUntil));
+            }
+            return remaining;
+        }
+
+        function ensureCountdownTimer() {
+            if (countdownTimer) return;
+
+            countdownTimer = setInterval(() => {
+                refreshSendCodeButton();
+                if (getSendCodeCooldown() <= 0) {
+                    clearInterval(countdownTimer);
+                    countdownTimer = null;
+                }
+            }, 1000);
+        }
+
+        function refreshSendCodeButton() {
+            const remaining = getSendCodeCooldown();
+            if (remaining > 0) {
+                sendCodeBtn.disabled = true;
+                sendCodeBtn.textContent = `${remaining}s`;
+                ensureCountdownTimer();
+                return;
+            }
+
+            sendCodeBtn.disabled = false;
+            sendCodeBtn.textContent = "发送验证码";
+            if (countdownTimer) {
+                clearInterval(countdownTimer);
+                countdownTimer = null;
+            }
+        }
+
+        function setEmailCooldown(parsed, seconds) {
+            sendCooldownState.email = parsed.email;
+            sendCooldownState.emailUntil = Math.max(sendCooldownState.emailUntil, Date.now() + seconds * 1000);
+        }
+
+        function setDomainCooldown(parsed, seconds) {
+            sendCooldownState.domain = parsed.domain;
+            sendCooldownState.domainUntil = Math.max(sendCooldownState.domainUntil, Date.now() + seconds * 1000);
+        }
+
+        function applySendCodeSuccessCooldown(parsed) {
+            setEmailCooldown(parsed, 60);
+            if (!isCommonEmailDomain(parsed.domain)) {
+                setDomainCooldown(parsed, 30);
+            }
+            refreshSendCodeButton();
+        }
+
+        function syncCooldownFromRateLimit(parsed, message) {
+            const secondsMatch = message?.match(/(\d+)\s*秒/);
+            const seconds = secondsMatch ? parseInt(secondsMatch[1], 10) : 0;
+            if (!seconds) return;
+
+            if (message.includes("邮箱域名")) {
+                setDomainCooldown(parsed, seconds);
+            } else {
+                setEmailCooldown(parsed, seconds);
+            }
+            refreshSendCodeButton();
+        }
 
         // 年龄步进器逻辑：移除正数限制，允许负数
         document.getElementById('age-minus').addEventListener('click', () => {
@@ -1476,6 +1585,11 @@
         }
 
         form.addEventListener('input', hideAlerts);
+        emailInput.addEventListener('input', refreshSendCodeButton);
+        emailInput.addEventListener('blur', () => {
+            normalizeEmailFieldValue();
+            refreshSendCodeButton();
+        });
 
         function updateUI() {
             hideAlerts();
@@ -1501,6 +1615,8 @@
                 userInput.tabIndex = 0;
                 userInput.placeholder = "请输入您的用户名";
             }
+
+            refreshSendCodeButton();
         }
         updateUI();
 
@@ -1552,28 +1668,16 @@
         document.getElementById('close-captcha-x').addEventListener('click', closeFunc);
         document.getElementById('close-captcha-btn').addEventListener('click', closeFunc);
 
-        let countdownTimer: any = null;
-        function startCountdown() {
-            let seconds = 60;
-            sendCodeBtn.disabled = true;
-            sendCodeBtn.textContent = `${seconds}s`;
-            if (countdownTimer) clearInterval(countdownTimer);
-            countdownTimer = setInterval(() => {
-                seconds--;
-                if (seconds <= 0) {
-                    clearInterval(countdownTimer);
-                    sendCodeBtn.disabled = false;
-                    sendCodeBtn.textContent = "发送验证码";
-                } else {
-                    sendCodeBtn.textContent = `${seconds}s`;
-                }
-            }, 1000);
-        }
-
         async function executeSendCode(val, key) {
+            const parsedEmail = normalizeEmailFieldValue();
+            if (!parsedEmail) {
+                showError("请输入有效的邮箱地址");
+                return;
+            }
+
             loading.classList.remove('hidden');
             try {
-                const req = authpb.SendEmailCodeRequest.create({ email: emailInput.value, captchaKey: key, captchaValue: val });
+                const req = authpb.SendEmailCodeRequest.create({ email: parsedEmail.email, captchaKey: key, captchaValue: val });
                 const res = await fetch(`${apiUrl}/api/send-code`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
@@ -1581,8 +1685,11 @@
                 });
                 const result = await handleFetchResponse(res, authpb.SendEmailCodeResponse);
                 showSuccess(result.msg || "已发送");
-                startCountdown();
+                applySendCodeSuccessCooldown(parsedEmail);
             } catch (e) { 
+                if ((e as any).code === 429) {
+                    syncCooldownFromRateLimit(parsedEmail, e.message || "");
+                }
                 showError(e.message || "发送失败", (e as any).code, (e as any).traceId); 
             } finally { loading.classList.add('hidden'); }
         }
@@ -1614,6 +1721,10 @@
                     if (!rawData.email) { showError("请输入邮箱地址"); return; }
                     if (!rawData.age) { showError("请输入年龄"); return; }
                     if (!rawData.password) { showError("请输入密码"); return; }
+
+                    const parsedEmail = normalizeEmailFieldValue();
+                    if (!parsedEmail) { showError("请输入有效的邮箱地址"); return; }
+                    rawData.email = parsedEmail.email;
                     
                     const password = rawData.password as string;
                     if (password.length < 32) { showError("密码长度必须大于等于 32 位"); return; }
@@ -1627,7 +1738,7 @@
                     const isValid = await verifyPoW(rawData.code as string);
                     if (!isValid) { showError("PoW 证明无效：哈希摘要未满足难度目标"); return; }
                     const req = authpb.RegisterRequest.fromObject({
-                        username: rawData.username, email: rawData.email, age: parseInt(rawData.age as string),
+                        username: rawData.username, email: parsedEmail.email, age: parseInt(rawData.age as string),
                         password: rawData.password, code: rawData.code
                     });
                     body = authpb.RegisterRequest.encode(req).finish();
@@ -1752,12 +1863,21 @@
         }
 
         sendCodeBtn.addEventListener('click', () => { 
-            if (emailInput.value) { 
-                hideAlerts(); 
-                fetchNewCaptcha(); 
-                captchaModal.classList.remove('hidden'); 
-                renderGrid(); 
-            } else showError("请输入邮箱地址"); 
+            const parsedEmail = normalizeEmailFieldValue();
+            if (!parsedEmail) {
+                showError(emailInput.value ? "请输入有效的邮箱地址" : "请输入邮箱地址");
+                return;
+            }
+
+            if (getSendCodeCooldown(parsedEmail) > 0) {
+                refreshSendCodeButton();
+                return;
+            }
+
+            hideAlerts(); 
+            fetchNewCaptcha(); 
+            captchaModal.classList.remove('hidden'); 
+            renderGrid(); 
         });
     });
 </script>

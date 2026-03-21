@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -48,19 +49,47 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if isRestrictedDomain(req.Email) {
-		domain := ""
-		if parts := strings.Split(req.Email, "@"); len(parts) == 2 {
-			domain = parts[1]
-		}
+	email, domain, ok := normalizeEmailAddress(req.Email)
+	if !ok {
+		res.Code = http.StatusBadRequest
+		res.Msg = "请输入有效的邮箱地址"
+		sendProto(w, res)
+		return
+	}
+
+	if isRestrictedDomain(domain) {
 		res.Code = http.StatusBadRequest
 		res.Msg = fmt.Sprintf("暂不支持 %s 邮箱，请使用其他邮箱", domain)
 		sendProto(w, res)
 		return
 	}
 
+	applyDomainLimit := !isCommonEmailDomain(domain)
+	limitedScope, retryAfter, err := db.ReserveVerificationEmailSend(email, domain, applyDomainLimit)
+	if err != nil {
+		res.Code = http.StatusInternalServerError
+		res.Msg = "系统繁忙"
+		sendProto(w, res)
+		return
+	}
+	if limitedScope != "" {
+		seconds := int(math.Ceil(retryAfter.Seconds()))
+		if seconds < 1 {
+			seconds = 1
+		}
+
+		res.Code = http.StatusTooManyRequests
+		if limitedScope == "domain" {
+			res.Msg = fmt.Sprintf("该邮箱域名发送过于频繁，请 %d 秒后再试", seconds)
+		} else {
+			res.Msg = fmt.Sprintf("该邮箱发送过于频繁，请 %d 秒后再试", seconds)
+		}
+		sendProto(w, res)
+		return
+	}
+
 	challenge, _ := generateRandomHex(16)
-	if err := db.SaveVerificationCode(req.Email, challenge); err != nil {
+	if err := db.SaveVerificationCode(email, challenge); err != nil {
 		res.Code = http.StatusInternalServerError
 		res.Msg = "系统繁忙"
 		sendProto(w, res)
@@ -75,17 +104,17 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 	计算完成后，请将包含前缀在内的完整证明字符串粘贴至验证码输入框。<br><br>
     请在 2 小时内完成验证。如果这不是您的操作，请忽略此邮件。`, challenge)
 
-	if err := sender.Send(req.Email, subject, html); err != nil {
+	if err := sender.Send(email, subject, html); err != nil {
 		if !isMailEnvConfigured() {
 			log.Printf("mail: MAIL_API_* 未正确配置，请在后端日志中查看。trace_id=%s", res.TraceId)
-			log.Printf("mail: fallback email begin\nTo: %s\nSubject: %s\nHTML:\n%s\nmail: fallback email end", req.Email, subject, html)
+			log.Printf("mail: fallback email begin\nTo: %s\nSubject: %s\nHTML:\n%s\nmail: fallback email end", email, subject, html)
 			res.Code = http.StatusOK
 			res.Msg = "验证码已发送"
 			sendProto(w, res)
 			return
 		}
 
-		log.Printf("mail: 发送失败。trace_id=%s email=%s err=%v", res.TraceId, req.Email, err)
+		log.Printf("mail: 发送失败。trace_id=%s email=%s err=%v", res.TraceId, email, err)
 		res.Code = http.StatusInternalServerError
 		res.Msg = "邮件发送失败"
 		sendProto(w, res)
