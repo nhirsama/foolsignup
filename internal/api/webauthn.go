@@ -129,8 +129,7 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 
 	var req authpb.VerifyWebAuthnRegistrationRequest
 	if err := readProto(r, &req); err != nil {
-		res.Code = http.StatusBadRequest
-		res.Msg = "格式错误"
+		res.Code, res.Msg = protoReadError(err, "格式错误")
 		sendProto(w, res)
 		return
 	}
@@ -211,8 +210,7 @@ func HandleGetWebAuthnLoginOptions(w http.ResponseWriter, r *http.Request) {
 
 	var req authpb.GetWebAuthnLoginOptionsRequest
 	if err := readProto(r, &req); err != nil {
-		res.Code = http.StatusBadRequest
-		res.Msg = "格式错误"
+		res.Code, res.Msg = protoReadError(err, "格式错误")
 		sendProto(w, res)
 		return
 	}
@@ -268,8 +266,7 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 
 	var req authpb.VerifyWebAuthnLoginRequest
 	if err := readProto(r, &req); err != nil {
-		res.Code = http.StatusBadRequest
-		res.Msg = "格式错误"
+		res.Code, res.Msg = protoReadError(err, "格式错误")
 		sendProto(w, res)
 		return
 	}

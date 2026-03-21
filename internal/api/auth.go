@@ -22,8 +22,7 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	var req authpb.LoginRequest
 	if err := readProto(r, &req); err != nil {
-		res.Code = http.StatusBadRequest
-		res.Msg = "格式错误"
+		res.Code, res.Msg = protoReadError(err, "格式错误")
 		sendProto(w, res)
 		return
 	}

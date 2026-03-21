@@ -23,8 +23,7 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 
 	var req authpb.RegisterRequest
 	if err := readProto(r, &req); err != nil {
-		res.Code = http.StatusBadRequest
-		res.Msg = "请求格式错误"
+		res.Code, res.Msg = protoReadError(err, "请求格式错误")
 		sendProto(w, res)
 		return
 	}

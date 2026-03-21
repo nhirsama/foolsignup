@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +11,10 @@ import (
 
 	"google.golang.org/protobuf/proto"
 )
+
+const maxProtoBodyBytes int64 = 1 << 20
+
+var errProtoBodyTooLarge = errors.New("protobuf request body too large")
 
 var restrictedDomains = map[string]struct{}{
 	// 预留受限域名列表
@@ -82,11 +87,25 @@ func setCorsHeaders(w http.ResponseWriter) {
 
 // readProto 从请求体中读取 Protobuf 二进制数据并反序列化。
 func readProto(r *http.Request, msg proto.Message) error {
-	body, err := io.ReadAll(r.Body)
+	if r.ContentLength > maxProtoBodyBytes {
+		return errProtoBodyTooLarge
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxProtoBodyBytes+1))
 	if err != nil {
 		return err
 	}
+	if int64(len(body)) > maxProtoBodyBytes {
+		return errProtoBodyTooLarge
+	}
 	return proto.Unmarshal(body, msg)
+}
+
+func protoReadError(err error, badRequestMsg string) (int32, string) {
+	if errors.Is(err, errProtoBodyTooLarge) {
+		return http.StatusRequestEntityTooLarge, "请求体过大"
+	}
+	return http.StatusBadRequest, badRequestMsg
 }
 
 // sendProto 序列化 Protobuf 消息并发送二进制响应。

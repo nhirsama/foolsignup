@@ -29,8 +29,7 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 
 	var req authpb.SendEmailCodeRequest
 	if err := readProto(r, &req); err != nil {
-		res.Code = http.StatusBadRequest
-		res.Msg = "请求无效"
+		res.Code, res.Msg = protoReadError(err, "请求无效")
 		sendProto(w, res)
 		return
 	}
