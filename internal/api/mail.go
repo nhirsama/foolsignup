@@ -97,11 +97,7 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 
 	sender := mail.NewDefaultSender()
 	subject := "PoW 验证码"
-	html := fmt.Sprintf(`您的证明字符串前缀为: <b>%s</b><br><br>
-	<b>验证要求：</b><br>
-	请寻找一个以此前缀开头的扩展字符串，并确保其 SHA-256 哈希摘要满足前导 20 位零比特位限制 (Difficulty Target)。<br><br>
-	计算完成后，请将包含前缀在内的完整证明字符串粘贴至验证码输入框。<br><br>
-    请在 2 小时内完成验证。如果这不是您的操作，请忽略此邮件。`, challenge)
+	html := buildVerificationEmailHTML(challenge)
 
 	if err := sender.Send(email, subject, html); err != nil {
 		if !isMailEnvConfigured() {
@@ -123,6 +119,40 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 	res.Code = http.StatusOK
 	res.Msg = "验证码已发送"
 	sendProto(w, res)
+}
+
+func buildVerificationEmailHTML(challenge string) string {
+	return fmt.Sprintf(`<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PoW 验证码</title>
+</head>
+<body style="margin:0;padding:24px;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;color:#1f2937;">
+  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="max-width:640px;border-collapse:collapse;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+          <tr>
+            <td style="height:6px;background:linear-gradient(90deg,#111827,#4b5563);"></td>
+          </tr>
+          <tr>
+            <td style="padding:28px 28px 18px 28px;">
+              <p style="margin:0 0 14px 0;font-size:16px;line-height:1.75;">您的证明字符串前缀为:</p>
+              <div style="margin:0 0 22px 0;padding:14px 16px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;font-size:20px;line-height:1.4;font-weight:700;letter-spacing:0.5px;color:#0f172a;word-break:break-all;">%s</div>
+              <p style="margin:0 0 10px 0;font-size:16px;line-height:1.75;font-weight:700;">验证要求：</p>
+              <p style="margin:0 0 12px 0;font-size:15px;line-height:1.8;">请寻找一个以此前缀开头的扩展字符串，并确保其 SHA-256 哈希摘要满足前导 20 位零比特位限制 (Difficulty Target)。</p>
+              <p style="margin:0 0 12px 0;font-size:15px;line-height:1.8;">计算完成后，请将包含前缀在内的完整证明字符串粘贴至验证码输入框。</p>
+              <p style="margin:0;font-size:15px;line-height:1.8;">请在 2 小时内完成验证。如果这不是您的操作，请忽略此邮件。</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`, challenge)
 }
 
 func generateRandomHex(n int) (string, error) {
