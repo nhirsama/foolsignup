@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/go-webauthn/webauthn v0.16.0
+	github.com/lib/pq v1.10.9
 	github.com/mojocn/base64Captcha v1.3.8
 	golang.org/x/crypto v0.48.0
 	google.golang.org/protobuf v1.36.11

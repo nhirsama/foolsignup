@@ -17,7 +17,7 @@
 
 ## 技术栈
 
-- 后端: Go 1.22+ / Protobuf / SQLite
+- 后端: Go 1.22+ / Protobuf / SQLite / PostgreSQL
 - 前端: Astro / TypeScript / Protobuf.js
 - 架构: 前后端分离，通过 Protobuf over HTTP 交互
 
@@ -40,12 +40,20 @@ cd foolsignup
 
 修改 `docker-compose.yml` 。核心变量说明：
 
-| 变量名                 | 说明                         | 示例                                        |
-|:--------------------|:---------------------------|:------------------------------------------|
-| `ALLOWED_ORIGIN`    | 允许跨域的域名（前端访问地址）            | `https://signup.example.com`              |
-| `MAIL_API_ENDPOINT` | 邮件服务 API 地址 (基于 HTTP POST) | `https://api.cyberpersons.com/email/send` |
-| `MAIL_API_KEY`      | 邮件服务 API Key               | `your_secret_key`                         |
-| `MAIL_FROM`         | 发件人邮箱                      | `noreply@example.com`                     |
+| 变量名                 | 说明                                                       | 示例                                                                                          |
+|:--------------------|:---------------------------------------------------------|:--------------------------------------------------------------------------------------------|
+| `DB_TYPE`           | 数据库类型，支持 `sqlite`/`postgres`（兼容 `postgresql/psql/pqsql`） | `sqlite`                                                                                    |
+| `DB_SQLITE_PATH`    | SQLite 文件路径（仅 `DB_TYPE=sqlite` 时生效）                      | `/app/data/data.db`                                                                         |
+| `DB_DSN`            | PostgreSQL DSN（仅 `DB_TYPE=postgres` 时生效，需自行部署 PostgreSQL） | `host=127.0.0.1 port=5432 user=postgres password=postgres dbname=foolsignup sslmode=disable` |
+| `ALLOWED_ORIGIN`    | 允许跨域的域名（前端访问地址）                                          | `https://signup.example.com`                                                                |
+| `MAIL_API_ENDPOINT` | 邮件服务 API 地址 (基于 HTTP POST)                               | `https://api.cyberpersons.com/email/send`                                                   |
+| `MAIL_API_KEY`      | 邮件服务 API Key                                             | `your_secret_key`                                                                           |
+| `MAIL_FROM`         | 发件人邮箱                                                    | `noreply@example.com`                                                                       |
+
+数据库切换示例：
+
+- 使用 SQLite（默认）：`DB_TYPE=sqlite`
+- 使用 PostgreSQL：`DB_TYPE=postgres`，并设置 `DB_DSN`（PostgreSQL 需自行安装/部署）
 
 ### 4. 启动服务
 
@@ -58,7 +66,8 @@ docker-compose up -d --build
 服务启动后：
 
 - 后端 API 将运行在 `http://localhost:16241` (映射自 3001)。
-- 数据库文件将持久化在当前目录下的 `./data/data.db`。
+- 若使用 SQLite，数据库文件将持久化在当前目录下的 `./data/data.db`。
+- 若使用 PostgreSQL，数据持久化由你自行部署的 PostgreSQL 负责。
 
 ---
 

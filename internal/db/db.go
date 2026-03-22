@@ -9,18 +9,27 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
+	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
+)
+
+const (
+	dbTypeSQLite   = "sqlite"
+	dbTypePostgres = "postgres"
 )
 
 var (
 	// Instance is the global database connection instance.
 	Instance *sql.DB
 	once     sync.Once
+	dialect  = dbTypeSQLite
 
 	sendThrottleMu sync.Mutex
 )
@@ -28,14 +37,14 @@ var (
 // InitDB initializes the database connection and creates necessary tables.
 func InitDB() {
 	once.Do(func() {
-		dbDir := "./data"
-		if err := os.MkdirAll(dbDir, 0755); err != nil {
-			log.Fatalf("failed to create database directory: %v", err)
+		dialect = normalizeDBType(os.Getenv("DB_TYPE"))
+
+		driverName, dsn, err := resolveConnectionConfig(dialect)
+		if err != nil {
+			log.Fatalf("failed to resolve database config: %v", err)
 		}
 
-		dbPath := filepath.Join(dbDir, "data.db")
-		var err error
-		Instance, err = sql.Open("sqlite", dbPath)
+		Instance, err = sql.Open(driverName, dsn)
 		if err != nil {
 			log.Fatalf("failed to open database: %v", err)
 		}
@@ -44,27 +53,109 @@ func InitDB() {
 			log.Fatalf("failed to ping database: %v", err)
 		}
 
-		// Initialize table schema
-		schema := `
+		if _, err := Instance.Exec(schemaForDialect()); err != nil {
+			log.Fatalf("failed to initialize schema: %v", err)
+		}
+
+		applyLegacyMigrations()
+
+		var count int
+		if err := dbQueryRow("SELECT COUNT(*) FROM users").Scan(&count); err != nil {
+			log.Fatalf("failed to count existing users: %v", err)
+		}
+		if count == 0 {
+			seedData()
+		}
+
+		log.Printf("database initialized with dialect=%s", dialect)
+	})
+}
+
+func resolveConnectionConfig(dbType string) (driverName string, dsn string, err error) {
+	switch dbType {
+	case dbTypeSQLite:
+		dbPath := strings.TrimSpace(os.Getenv("DB_SQLITE_PATH"))
+		if dbPath == "" {
+			dbPath = filepath.Join(".", "data", "data.db")
+		}
+
+		dbDir := filepath.Dir(dbPath)
+		if dbDir != "" && dbDir != "." {
+			if mkErr := os.MkdirAll(dbDir, 0755); mkErr != nil {
+				return "", "", fmt.Errorf("create sqlite directory: %w", mkErr)
+			}
+		}
+		return "sqlite", dbPath, nil
+	case dbTypePostgres:
+		return "postgres", buildPostgresDSN(), nil
+	default:
+		return "", "", fmt.Errorf("unsupported database type %q", dbType)
+	}
+}
+
+func buildPostgresDSN() string {
+	if dsn := strings.TrimSpace(os.Getenv("DB_DSN")); dsn != "" {
+		return dsn
+	}
+	if dsn := strings.TrimSpace(os.Getenv("DATABASE_URL")); dsn != "" {
+		return dsn
+	}
+
+	host := envOrDefault("DB_HOST", "postgres")
+	port := envOrDefault("DB_PORT", "5432")
+	user := envOrDefault("DB_USER", "postgres")
+	password := envOrDefault("DB_PASSWORD", "postgres")
+	name := envOrDefault("DB_NAME", "foolsignup")
+	sslMode := envOrDefault("DB_SSLMODE", "disable")
+
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s", host, port, user, password, name, sslMode)
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func normalizeDBType(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "sqlite", "sqlite3":
+		return dbTypeSQLite
+	case "postgres", "postgresql", "psql", "pq", "pqsql":
+		return dbTypePostgres
+	default:
+		log.Printf("unknown DB_TYPE=%q, fallback to sqlite", raw)
+		return dbTypeSQLite
+	}
+}
+
+func isPostgres() bool {
+	return dialect == dbTypePostgres
+}
+
+func schemaForDialect() string {
+	if isPostgres() {
+		return `
 		CREATE TABLE IF NOT EXISTS users (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			username TEXT UNIQUE NOT NULL,
 			email TEXT UNIQUE NOT NULL,
 			age INTEGER UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
 			plain_password TEXT UNIQUE NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE TABLE IF NOT EXISTS verification_codes (
 			email TEXT NOT NULL,
 			code TEXT NOT NULL,
-			expires_at DATETIME NOT NULL,
+			expires_at TIMESTAMPTZ NOT NULL,
 			PRIMARY KEY (email, code)
 		);
 		CREATE TABLE IF NOT EXISTS email_send_throttles (
 			scope TEXT NOT NULL,
 			identifier TEXT NOT NULL,
-			last_sent_unix_ms INTEGER NOT NULL,
+			last_sent_unix_ms BIGINT NOT NULL,
 			PRIMARY KEY (scope, identifier)
 		);
 		CREATE TABLE IF NOT EXISTS registration_attempts (
@@ -72,45 +163,123 @@ func InitDB() {
 			count INTEGER DEFAULT 0
 		);
 		CREATE TABLE IF NOT EXISTS webauthn_credentials (
-			id BLOB PRIMARY KEY,
-			user_id INTEGER NOT NULL,
-			public_key BLOB NOT NULL,
+			id BYTEA PRIMARY KEY,
+			user_id BIGINT NOT NULL,
+			public_key BYTEA NOT NULL,
 			attestation_type TEXT NOT NULL,
-			aaguid BLOB NOT NULL,
-			sign_count INTEGER NOT NULL,
+			aaguid BYTEA NOT NULL,
+			sign_count BIGINT NOT NULL,
 			clone_warning BOOLEAN NOT NULL,
-			backup_eligible BOOLEAN NOT NULL DEFAULT 0,
-			backup_state BOOLEAN NOT NULL DEFAULT 0,
+			backup_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+			backup_state BOOLEAN NOT NULL DEFAULT FALSE,
 			FOREIGN KEY (user_id) REFERENCES users(id)
 		);`
+	}
 
-		if _, err := Instance.Exec(schema); err != nil {
-			log.Fatalf("failed to initialize schema: %v", err)
+	return `
+	CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT UNIQUE NOT NULL,
+		email TEXT UNIQUE NOT NULL,
+		age INTEGER UNIQUE NOT NULL,
+		password_hash TEXT NOT NULL,
+		plain_password TEXT UNIQUE NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE TABLE IF NOT EXISTS verification_codes (
+		email TEXT NOT NULL,
+		code TEXT NOT NULL,
+		expires_at DATETIME NOT NULL,
+		PRIMARY KEY (email, code)
+	);
+	CREATE TABLE IF NOT EXISTS email_send_throttles (
+		scope TEXT NOT NULL,
+		identifier TEXT NOT NULL,
+		last_sent_unix_ms INTEGER NOT NULL,
+		PRIMARY KEY (scope, identifier)
+	);
+	CREATE TABLE IF NOT EXISTS registration_attempts (
+		email TEXT PRIMARY KEY,
+		count INTEGER DEFAULT 0
+	);
+	CREATE TABLE IF NOT EXISTS webauthn_credentials (
+		id BLOB PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		public_key BLOB NOT NULL,
+		attestation_type TEXT NOT NULL,
+		aaguid BLOB NOT NULL,
+		sign_count INTEGER NOT NULL,
+		clone_warning BOOLEAN NOT NULL,
+		backup_eligible BOOLEAN NOT NULL DEFAULT 0,
+		backup_state BOOLEAN NOT NULL DEFAULT 0,
+		FOREIGN KEY (user_id) REFERENCES users(id)
+	);`
+}
+
+func applyLegacyMigrations() {
+	if isPostgres() {
+		_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN IF NOT EXISTS backup_eligible BOOLEAN NOT NULL DEFAULT FALSE")
+		_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN IF NOT EXISTS backup_state BOOLEAN NOT NULL DEFAULT FALSE")
+		return
+	}
+
+	_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN backup_eligible BOOLEAN NOT NULL DEFAULT 0")
+	_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN backup_state BOOLEAN NOT NULL DEFAULT 0")
+}
+
+func bindPlaceholders(query string) string {
+	if !isPostgres() || !strings.Contains(query, "?") {
+		return query
+	}
+
+	var b strings.Builder
+	b.Grow(len(query) + 8)
+	argIndex := 1
+
+	for _, ch := range query {
+		if ch != '?' {
+			b.WriteRune(ch)
+			continue
 		}
+		b.WriteByte('$')
+		b.WriteString(strconv.Itoa(argIndex))
+		argIndex++
+	}
 
-		// 增量升级旧表结构
-		_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN backup_eligible BOOLEAN NOT NULL DEFAULT 0")
-		_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN backup_state BOOLEAN NOT NULL DEFAULT 0")
+	return b.String()
+}
 
-		var count int
-		_ = Instance.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
-		if count == 0 {
-			seedData()
-		}
-	})
+func dbExec(query string, args ...any) (sql.Result, error) {
+	return Instance.Exec(bindPlaceholders(query), args...)
+}
+
+func dbQuery(query string, args ...any) (*sql.Rows, error) {
+	return Instance.Query(bindPlaceholders(query), args...)
+}
+
+func dbQueryRow(query string, args ...any) *sql.Row {
+	return Instance.QueryRow(bindPlaceholders(query), args...)
+}
+
+func txExec(tx *sql.Tx, query string, args ...any) (sql.Result, error) {
+	return tx.Exec(bindPlaceholders(query), args...)
+}
+
+func txQueryRow(tx *sql.Tx, query string, args ...any) *sql.Row {
+	return tx.QueryRow(bindPlaceholders(query), args...)
 }
 
 // GetUserByID 返回用户名。
 func GetUserByID(id int) (string, string, bool) {
 	var username, email string
 	query := "SELECT username, email FROM users WHERE id = ?"
-	err := Instance.QueryRow(query, id).Scan(&username, &email)
+	err := dbQueryRow(query, id).Scan(&username, &email)
 	return username, email, err == nil
 }
 
 // GetUserCredentials 获取用户的 WebAuthn 凭证。
 func GetUserCredentials(userID int) ([]webauthn.Credential, error) {
-	rows, err := Instance.Query("SELECT id, public_key, attestation_type, aaguid, sign_count, backup_eligible, backup_state FROM webauthn_credentials WHERE user_id = ?", userID)
+	rows, err := dbQuery("SELECT id, public_key, attestation_type, aaguid, sign_count, backup_eligible, backup_state FROM webauthn_credentials WHERE user_id = ?", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -130,27 +299,27 @@ func GetUserCredentials(userID int) ([]webauthn.Credential, error) {
 func GetCredentialByID(credID []byte) (int, []byte, error) {
 	var userID int
 	var pubKey []byte
-	err := Instance.QueryRow("SELECT user_id, public_key FROM webauthn_credentials WHERE id = ?", credID).Scan(&userID, &pubKey)
+	err := dbQueryRow("SELECT user_id, public_key FROM webauthn_credentials WHERE id = ?", credID).Scan(&userID, &pubKey)
 	return userID, pubKey, err
 }
 
 // SaveCredential 存储凭证。
 func SaveCredential(userID int, credID, pubKey []byte, attType string, aaguid []byte, signCount int, backupEligible, backupState bool) error {
 	query := "INSERT INTO webauthn_credentials (id, user_id, public_key, attestation_type, aaguid, sign_count, clone_warning, backup_eligible, backup_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	_, err := Instance.Exec(query, credID, userID, pubKey, attType, aaguid, signCount, false, backupEligible, backupState)
+	_, err := dbExec(query, credID, userID, pubKey, attType, aaguid, signCount, false, backupEligible, backupState)
 	return err
 }
 
 // UpdateCredentialSignCount 更新凭证的签名计数。
 func UpdateCredentialSignCount(credID []byte, signCount uint32) error {
-	_, err := Instance.Exec("UPDATE webauthn_credentials SET sign_count = ? WHERE id = ?", signCount, credID)
+	_, err := dbExec("UPDATE webauthn_credentials SET sign_count = ? WHERE id = ?", signCount, credID)
 	return err
 }
 
 // Has2FA 检查用户是否已设置 2FA。
 func Has2FA(userID int) bool {
 	var count int
-	_ = Instance.QueryRow("SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?", userID).Scan(&count)
+	_ = dbQueryRow("SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?", userID).Scan(&count)
 	return count > 0
 }
 
@@ -158,7 +327,7 @@ func Has2FA(userID int) bool {
 func GetVerificationCode(email string) (string, bool) {
 	var code string
 	query := "SELECT code FROM verification_codes WHERE email = ? AND expires_at > ? LIMIT 1"
-	err := Instance.QueryRow(query, email, time.Now()).Scan(&code)
+	err := dbQueryRow(query, email, time.Now()).Scan(&code)
 	return code, err == nil
 }
 
@@ -166,7 +335,7 @@ func GetVerificationCode(email string) (string, bool) {
 func SaveVerificationCode(email, code string) error {
 	expiresAt := time.Now().Add(2 * time.Hour)
 	query := "INSERT INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?) ON CONFLICT(email, code) DO UPDATE SET expires_at = excluded.expires_at"
-	_, err := Instance.Exec(query, email, code, expiresAt)
+	_, err := dbExec(query, email, code, expiresAt)
 	return err
 }
 
@@ -223,7 +392,7 @@ func ReserveVerificationEmailSend(email, domain string, applyDomainLimit bool) (
 
 func getThrottleRemaining(tx *sql.Tx, scope, identifier string, now time.Time, window time.Duration) (time.Duration, error) {
 	var lastSentUnixMs int64
-	err := tx.QueryRow("SELECT last_sent_unix_ms FROM email_send_throttles WHERE scope = ? AND identifier = ?", scope, identifier).Scan(&lastSentUnixMs)
+	err := txQueryRow(tx, "SELECT last_sent_unix_ms FROM email_send_throttles WHERE scope = ? AND identifier = ?", scope, identifier).Scan(&lastSentUnixMs)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -245,7 +414,7 @@ func upsertThrottle(tx *sql.Tx, scope, identifier string, lastSentUnixMs int64) 
 		VALUES (?, ?, ?)
 		ON CONFLICT(scope, identifier) DO UPDATE SET last_sent_unix_ms = excluded.last_sent_unix_ms
 	`
-	_, err := tx.Exec(query, scope, identifier, lastSentUnixMs)
+	_, err := txExec(tx, query, scope, identifier, lastSentUnixMs)
 	return err
 }
 
@@ -253,11 +422,48 @@ func upsertThrottle(tx *sql.Tx, scope, identifier string, lastSentUnixMs int64) 
 func VerifyCode(email, code string) bool {
 	var count int
 	query := "SELECT COUNT(*) FROM verification_codes WHERE email = ? AND code = ? AND expires_at > ?"
-	err := Instance.QueryRow(query, email, code, time.Now()).Scan(&count)
+	err := dbQueryRow(query, email, code, time.Now()).Scan(&count)
 	if err != nil {
 		return false
 	}
 	return count > 0
+}
+
+func createUser(username, email string, age int, passwordHash, plainPassword string) (int, error) {
+	if isPostgres() {
+		var userID int
+		err := dbQueryRow(
+			"INSERT INTO users (username, email, age, password_hash, plain_password) VALUES (?, ?, ?, ?, ?) RETURNING id",
+			username,
+			email,
+			age,
+			passwordHash,
+			plainPassword,
+		).Scan(&userID)
+		if err != nil {
+			return 0, err
+		}
+		return userID, nil
+	}
+
+	res, err := dbExec(
+		"INSERT INTO users (username, email, age, password_hash, plain_password) VALUES (?, ?, ?, ?, ?)",
+		username,
+		email,
+		age,
+		passwordHash,
+		plainPassword,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	userID, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	return int(userID), nil
 }
 
 // CreateBaitUser 创建一个虚假用户并为其开启 2FA 以阻止非法登录。
@@ -278,20 +484,17 @@ func CreateBaitUser(password string, age int) error {
 	baitUsername := fmt.Sprintf("User_%d", num)
 	baitEmail := fmt.Sprintf("internal_%d@local.sys", num)
 
-	res, err := Instance.Exec("INSERT INTO users (username, email, age, password_hash, plain_password) VALUES (?, ?, ?, ?, ?)",
-		baitUsername, baitEmail, baitAge, string(hash), password)
+	userID, err := createUser(baitUsername, baitEmail, baitAge, string(hash), password)
 	if err != nil {
 		return err
 	}
-
-	userID, _ := res.LastInsertId()
 
 	fakeCredID := make([]byte, 32)
 	_, _ = rand.Read(fakeCredID)
 	fakePubKey := make([]byte, 64)
 	_, _ = rand.Read(fakePubKey)
 
-	return SaveCredential(int(userID), fakeCredID, fakePubKey, "packed", make([]byte, 16), 0, false, false)
+	return SaveCredential(userID, fakeCredID, fakePubKey, "packed", make([]byte, 16), 0, false, false)
 }
 
 func seedData() {
@@ -309,7 +512,7 @@ func seedData() {
 func GetRegistrationCount(email string) int {
 	var count int
 	query := "SELECT count FROM registration_attempts WHERE email = ?"
-	err := Instance.QueryRow(query, email).Scan(&count)
+	err := dbQueryRow(query, email).Scan(&count)
 	if err != nil {
 		return 0
 	}
@@ -319,23 +522,23 @@ func GetRegistrationCount(email string) int {
 // IncrementRegistrationCount 增加某个邮箱的尝试注册次数。
 func IncrementRegistrationCount(email string) error {
 	query := "INSERT INTO registration_attempts (email, count) VALUES (?, 1) ON CONFLICT(email) DO UPDATE SET count = count + 1"
-	_, err := Instance.Exec(query, email)
+	_, err := dbExec(query, email)
 	return err
 }
 
 // CheckConflict 检查用户信息是否与现有记录冲突。
 func CheckConflict(username, email string, age int, password string) (string, string) {
 	var existingUser string
-	if err := Instance.QueryRow("SELECT username FROM users WHERE username = ?", username).Scan(&existingUser); err == nil {
+	if err := dbQueryRow("SELECT username FROM users WHERE username = ?", username).Scan(&existingUser); err == nil {
 		return "用户名", ""
 	}
-	if err := Instance.QueryRow("SELECT username FROM users WHERE email = ?", email).Scan(&existingUser); err == nil {
+	if err := dbQueryRow("SELECT username FROM users WHERE email = ?", email).Scan(&existingUser); err == nil {
 		return "邮箱地址", ""
 	}
-	if err := Instance.QueryRow("SELECT username FROM users WHERE age = ?", age).Scan(&existingUser); err == nil {
+	if err := dbQueryRow("SELECT username FROM users WHERE age = ?", age).Scan(&existingUser); err == nil {
 		return "年龄", existingUser
 	}
-	if err := Instance.QueryRow("SELECT username FROM users WHERE plain_password = ?", password).Scan(&existingUser); err == nil {
+	if err := dbQueryRow("SELECT username FROM users WHERE plain_password = ?", password).Scan(&existingUser); err == nil {
 		return "密码", existingUser
 	}
 	return "", ""
@@ -347,8 +550,7 @@ func SaveUser(username, email string, age int, password string) error {
 	if err != nil {
 		return err
 	}
-	query := "INSERT INTO users (username, email, age, password_hash, plain_password) VALUES (?, ?, ?, ?, ?)"
-	_, err = Instance.Exec(query, username, email, age, string(hash), password)
+	_, err = createUser(username, email, age, string(hash), password)
 	return err
 }
 
@@ -357,7 +559,7 @@ func GetUserByCredentials(username, password string) (int, bool) {
 	var id int
 	var hash string
 	query := "SELECT id, password_hash FROM users WHERE username = ?"
-	err := Instance.QueryRow(query, username).Scan(&id, &hash)
+	err := dbQueryRow(query, username).Scan(&id, &hash)
 	if err != nil {
 		return 0, false
 	}

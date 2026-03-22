@@ -16,6 +16,13 @@ services:
       - FOOL_SIGNUP_PORT=3001
       - ALLOWED_ORIGIN=http://localhost:4321 # 生产环境请修改为 Cloudflare Pages 域名
 
+      # 数据库配置: DB_TYPE 可选 sqlite/postgres(也兼容 postgresql/psql/pqsql)
+      - DB_TYPE=${DB_TYPE:-sqlite}
+      # sqlite 模式下生效
+      - DB_SQLITE_PATH=${DB_SQLITE_PATH:-/app/data/data.db}
+      # postgres 模式下生效, 支持标准 DSN（PostgreSQL 需自行部署）
+      - DB_DSN=${DB_DSN:-}
+
       # 邮件服务配置 (请根据实际情况填写)
       - MAIL_API_ENDPOINT=
       - MAIL_FROM=

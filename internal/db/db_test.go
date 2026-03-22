@@ -26,9 +26,12 @@ func newThrottleTestDB(t *testing.T) *sql.DB {
 	}
 
 	previous := Instance
+	previousDialect := dialect
 	Instance = testDB
+	dialect = dbTypeSQLite
 	t.Cleanup(func() {
 		Instance = previous
+		dialect = previousDialect
 		_ = testDB.Close()
 	})
 
