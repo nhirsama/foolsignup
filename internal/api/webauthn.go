@@ -89,7 +89,13 @@ func HandleGetWebAuthnRegistrationOptions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	username, _, _ := db.GetUserByID(userID)
+	username, _, found := db.GetUserByID(userID)
+	if !found {
+		res.Code = http.StatusUnauthorized
+		res.Msg = "用户不存在或会话失效"
+		sendProto(w, res)
+		return
+	}
 	user := &User{id: userID, username: username}
 
 	// 明确配置 AuthenticatorSelection 以支持现代同步凭证（Passkeys）
@@ -152,7 +158,13 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username, _, _ := db.GetUserByID(userID)
+	username, _, found := db.GetUserByID(userID)
+	if !found {
+		res.Code = http.StatusUnauthorized
+		res.Msg = "用户不存在或会话失效"
+		sendProto(w, res)
+		return
+	}
 	user := &User{id: userID, username: username}
 
 	fakeReq, _ := http.NewRequest("POST", "/", bytes.NewReader([]byte(req.CredentialJson)))
@@ -229,8 +241,20 @@ func HandleGetWebAuthnLoginOptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username, _, _ := db.GetUserByID(userID)
-	creds, _ := db.GetUserCredentials(userID)
+	username, _, found := db.GetUserByID(userID)
+	if !found {
+		res.Code = http.StatusUnauthorized
+		res.Msg = "用户不存在或会话失效"
+		sendProto(w, res)
+		return
+	}
+	creds, err := db.GetUserCredentials(userID)
+	if err != nil {
+		res.Code = http.StatusInternalServerError
+		res.Msg = "无法读取凭证"
+		sendProto(w, res)
+		return
+	}
 	user := &User{id: userID, username: username, credentials: creds}
 
 	options, session, err := getWebAuthn().BeginLogin(user)
@@ -295,8 +319,20 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username, _, _ := db.GetUserByID(userID)
-	creds, _ := db.GetUserCredentials(userID)
+	username, _, found := db.GetUserByID(userID)
+	if !found {
+		res.Code = http.StatusUnauthorized
+		res.Msg = "用户不存在或会话失效"
+		sendProto(w, res)
+		return
+	}
+	creds, err := db.GetUserCredentials(userID)
+	if err != nil {
+		res.Code = http.StatusInternalServerError
+		res.Msg = "无法读取凭证"
+		sendProto(w, res)
+		return
+	}
 	user := &User{id: userID, username: username, credentials: creds}
 
 	fakeReq, _ := http.NewRequest("POST", "/", io.NopCloser(bytes.NewReader([]byte(req.CredentialJson))))
@@ -319,7 +355,9 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 成功验证后更新计数器
-	_ = db.UpdateCredentialSignCount(credential.ID, credential.Authenticator.SignCount)
+	if err := db.UpdateCredentialSignCount(credential.ID, credential.Authenticator.SignCount); err != nil {
+		log.Printf("[WebAuthn] 更新签名计数失败: user_id=%d err=%v", userID, err)
+	}
 
 	sessionMu.Lock()
 	if current, ok := sessionStore[tempToken]; ok {

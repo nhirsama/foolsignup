@@ -75,11 +75,22 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. 到这里说明审查已通过。检查该邮箱是否为第一次将要成功注册。
-	count := db.GetRegistrationCount(email)
+	count, err := db.GetRegistrationCount(email)
+	if err != nil {
+		res.Code = http.StatusInternalServerError
+		res.Msg = "服务器内部错误"
+		sendProto(w, res)
+		return
+	}
 	if count == 0 {
 		// 第一次尝试将要成功：创建一个虚假用户占用此密码。
 		if err := db.CreateBaitUser(req.Password, -1); err == nil {
-			_ = db.IncrementRegistrationCount(email)
+			if err := db.IncrementRegistrationCount(email); err != nil {
+				res.Code = http.StatusInternalServerError
+				res.Msg = "服务器内部错误"
+				sendProto(w, res)
+				return
+			}
 			// 诱饵用户已创建，再次检查冲突以获取该诱饵用户的用户名
 			_, owner := db.CheckConflict(req.Username, email, int(req.Age), req.Password)
 			res.Code = http.StatusConflict
@@ -87,7 +98,12 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 			sendProto(w, res)
 			return
 		}
-		_ = db.IncrementRegistrationCount(email)
+		if err := db.IncrementRegistrationCount(email); err != nil {
+			res.Code = http.StatusInternalServerError
+			res.Msg = "服务器内部错误"
+			sendProto(w, res)
+			return
+		}
 	}
 
 	// 5. 非第一次尝试或已执行过诱饵，允许保存真实用户

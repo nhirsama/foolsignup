@@ -38,6 +38,36 @@ func newThrottleTestDB(t *testing.T) *sql.DB {
 	return testDB
 }
 
+func newRegistrationAttemptsTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	testDB, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	schema := `
+	CREATE TABLE registration_attempts (
+		email TEXT PRIMARY KEY,
+		"count" INTEGER DEFAULT 0
+	);`
+	if _, err := testDB.Exec(schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+
+	previous := Instance
+	previousDialect := dialect
+	Instance = testDB
+	dialect = dbTypeSQLite
+	t.Cleanup(func() {
+		Instance = previous
+		dialect = previousDialect
+		_ = testDB.Close()
+	})
+
+	return testDB
+}
+
 func TestReserveVerificationEmailSendCommonDomainOnlyLimitsPerEmail(t *testing.T) {
 	newThrottleTestDB(t)
 
@@ -100,5 +130,41 @@ func TestReserveVerificationEmailSendUncommonDomainAlsoLimitsDomain(t *testing.T
 	}
 	if retryAfter <= 0 || retryAfter > 60*time.Second {
 		t.Fatalf("unexpected retry_after for email throttle: %v", retryAfter)
+	}
+}
+
+func TestIncrementRegistrationCount(t *testing.T) {
+	newRegistrationAttemptsTestDB(t)
+
+	const email = "user@example.com"
+
+	got, err := GetRegistrationCount(email)
+	if err != nil {
+		t.Fatalf("get initial count failed: %v", err)
+	}
+	if got != 0 {
+		t.Fatalf("expected initial count to be 0, got %d", got)
+	}
+
+	if err := IncrementRegistrationCount(email); err != nil {
+		t.Fatalf("first increment failed: %v", err)
+	}
+	got, err = GetRegistrationCount(email)
+	if err != nil {
+		t.Fatalf("get count after first increment failed: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("expected count after first increment to be 1, got %d", got)
+	}
+
+	if err := IncrementRegistrationCount(email); err != nil {
+		t.Fatalf("second increment failed: %v", err)
+	}
+	got, err = GetRegistrationCount(email)
+	if err != nil {
+		t.Fatalf("get count after second increment failed: %v", err)
+	}
+	if got != 2 {
+		t.Fatalf("expected count after second increment to be 2, got %d", got)
 	}
 }

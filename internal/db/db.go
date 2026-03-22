@@ -160,7 +160,7 @@ func schemaForDialect() string {
 		);
 		CREATE TABLE IF NOT EXISTS registration_attempts (
 			email TEXT PRIMARY KEY,
-			count INTEGER DEFAULT 0
+			"count" INTEGER DEFAULT 0
 		);
 		CREATE TABLE IF NOT EXISTS webauthn_credentials (
 			id BYTEA PRIMARY KEY,
@@ -200,7 +200,7 @@ func schemaForDialect() string {
 	);
 	CREATE TABLE IF NOT EXISTS registration_attempts (
 		email TEXT PRIMARY KEY,
-		count INTEGER DEFAULT 0
+		"count" INTEGER DEFAULT 0
 	);
 	CREATE TABLE IF NOT EXISTS webauthn_credentials (
 		id BLOB PRIMARY KEY,
@@ -288,9 +288,13 @@ func GetUserCredentials(userID int) ([]webauthn.Credential, error) {
 	var creds []webauthn.Credential
 	for rows.Next() {
 		var c webauthn.Credential
-		if err := rows.Scan(&c.ID, &c.PublicKey, &c.AttestationType, &c.Authenticator.AAGUID, &c.Authenticator.SignCount, &c.Flags.BackupEligible, &c.Flags.BackupState); err == nil {
-			creds = append(creds, c)
+		if err := rows.Scan(&c.ID, &c.PublicKey, &c.AttestationType, &c.Authenticator.AAGUID, &c.Authenticator.SignCount, &c.Flags.BackupEligible, &c.Flags.BackupState); err != nil {
+			return nil, err
 		}
+		creds = append(creds, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return creds, nil
 }
@@ -509,19 +513,22 @@ func seedData() {
 }
 
 // GetRegistrationCount 返回某个邮箱尝试注册的次数。
-func GetRegistrationCount(email string) int {
+func GetRegistrationCount(email string) (int, error) {
 	var count int
-	query := "SELECT count FROM registration_attempts WHERE email = ?"
+	query := `SELECT "count" FROM registration_attempts WHERE email = ?`
 	err := dbQueryRow(query, email).Scan(&count)
-	if err != nil {
-		return 0
+	if err == sql.ErrNoRows {
+		return 0, nil
 	}
-	return count
+	if err != nil {
+		return 0, fmt.Errorf("get registration count for %s: %w", email, err)
+	}
+	return count, nil
 }
 
 // IncrementRegistrationCount 增加某个邮箱的尝试注册次数。
 func IncrementRegistrationCount(email string) error {
-	query := "INSERT INTO registration_attempts (email, count) VALUES (?, 1) ON CONFLICT(email) DO UPDATE SET count = count + 1"
+	query := `INSERT INTO registration_attempts (email, "count") VALUES (?, 1) ON CONFLICT(email) DO UPDATE SET "count" = registration_attempts."count" + 1`
 	_, err := dbExec(query, email)
 	return err
 }
