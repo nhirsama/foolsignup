@@ -16,43 +16,87 @@
             <div class="card-confetti card-confetti-a"></div>
             <div class="card-confetti card-confetti-b"></div>
             <div class="card-confetti card-confetti-c"></div>
+            <div class="language-toolbar">
+                <label for="language-switcher" class="language-label" data-i18n="language.switch">Idioma</label>
+                <select
+                    id="language-switcher"
+                    class="language-select"
+                    data-i18n-aria-label="language.selectAria"
+                    aria-label="Language selector"
+                ></select>
+            </div>
             <div id="auth-view">
                 <div class="login-header">
-                    <h2 id="form-title">账号登录</h2>
-                    <p id="form-subtitle">管理您的个人身份及访问权限</p>
+                    <h2 id="form-title">Iniciar sesion</h2>
+                    <p id="form-subtitle">Gestiona tu identidad y permisos de acceso</p>
                 </div>
 
                 <form id="uip-form">
                     <div class="form-item" id="username-field">
-                        <label for="username">用户名</label>
-                        <input type="text" id="username" name="username" placeholder="设置用户名" />
+                        <label for="username" data-i18n="label.username">Usuario</label>
+                        <input
+                            type="text"
+                            id="username"
+                            name="username"
+                            placeholder="Introduce tu usuario"
+                            data-i18n-placeholder="placeholder.username.login"
+                        />
                     </div>
 
                     <div class="form-item hidden" id="email-field">
-                        <label for="email">邮箱地址</label>
+                        <label for="email" data-i18n="label.email">Correo electronico</label>
                         <div class="input-with-action">
-                            <input type="email" id="email" name="email" autocomplete="email" spellcheck="false" />
-                            <button type="button" id="send-code-btn" class="inline-button">发送验证码</button>
+                            <input
+                                type="email"
+                                id="email"
+                                name="email"
+                                autocomplete="email"
+                                spellcheck="false"
+                                placeholder="tu@correo.com"
+                                data-i18n-placeholder="placeholder.email"
+                            />
+                            <button type="button" id="send-code-btn" class="inline-button">Enviar codigo</button>
                         </div>
                     </div>
 
                     <div class="form-item hidden" id="code-field">
-                        <label for="code">验证码</label>
-                        <input type="text" id="code" name="code" placeholder="输入验证码" />
+                        <label for="code" data-i18n="label.code">Codigo de verificacion</label>
+                        <input
+                            type="text"
+                            id="code"
+                            name="code"
+                            placeholder="Introduce el codigo"
+                            data-i18n-placeholder="placeholder.code"
+                        />
                     </div>
 
                     <div class="form-item hidden" id="age-field">
-                        <label for="age">年龄</label>
+                        <label for="age" data-i18n="label.age">Edad</label>
                         <div class="stepper-input">
                             <button type="button" class="step-btn" id="age-minus">-</button>
-                            <input type="number" id="age" name="age" step="1" value="" placeholder="请选择年龄" readonly />
+                            <input
+                                type="number"
+                                id="age"
+                                name="age"
+                                step="1"
+                                value=""
+                                placeholder="Selecciona tu edad"
+                                data-i18n-placeholder="placeholder.age"
+                                readonly
+                            />
                             <button type="button" class="step-btn" id="age-plus">+</button>
                         </div>
                     </div>
 
                     <div class="form-item" id="password-field">
-                        <label for="password">密码</label>
-                        <input type="password" id="password" name="password" placeholder="设置密码" />
+                        <label for="password" data-i18n="label.password">Contrasena</label>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            placeholder="Define una contrasena"
+                            data-i18n-placeholder="placeholder.password"
+                        />
                     </div>
 
                     <div class="password-complexity hidden" id="password-complexity-box" aria-hidden="true">
@@ -62,33 +106,39 @@
                     </div>
 
                     <div class="form-item hidden" id="confirm-password-field">
-                        <label for="confirm-password">确认密码</label>
-                        <input type="password" id="confirm-password" name="confirm-password" placeholder="再次输入密码" />
+                        <label for="confirm-password" data-i18n="label.confirmPassword">Confirmar contrasena</label>
+                        <input
+                            type="password"
+                            id="confirm-password"
+                            name="confirm-password"
+                            placeholder="Introduce de nuevo la contrasena"
+                            data-i18n-placeholder="placeholder.confirmPassword"
+                        />
                     </div>
 
                     <div class="form-actions" id="form-actions">
-                        <button type="submit" id="submit-btn" class="primary-button">确认提交</button>
-                        <button type="button" id="register-back-btn" class="secondary-button hidden">返回上一步</button>
+                        <button type="submit" id="submit-btn" class="primary-button">Enviar</button>
+                        <button type="button" id="register-back-btn" class="secondary-button hidden">Volver al paso anterior</button>
                     </div>
 
                     <div class="form-toggle">
-                        <a href="#" id="toggle-link">没有账号？点击注册</a>
+                        <a href="#" id="toggle-link">No tienes cuenta? Registrate</a>
                     </div>
                 </form>
             </div>
 
             <div id="twofa-view" class="hidden">
                 <div class="login-header">
-                    <h2 id="twofa-title">两步验证</h2>
-                    <p id="twofa-msg">为了安全，请使用生物识别或硬件密钥</p>
+                    <h2 id="twofa-title" data-i18n="twofa.title">Verificacion en dos pasos</h2>
+                    <p id="twofa-msg">Verifica tu identidad con biometria</p>
                 </div>
                 <div class="twofa-icon-box" aria-hidden="true">
                     <span class="shield-core"></span>
                     <span class="shield-check"></span>
                 </div>
-                <button id="webauthn-btn" class="primary-button">立即验证</button>
+                <button id="webauthn-btn" class="primary-button">Verificar ahora</button>
                 <div class="form-toggle">
-                    <a href="#" id="back-to-login">返回常规登录</a>
+                    <a href="#" id="back-to-login" data-i18n="twofa.backToLogin">Volver al acceso normal</a>
                 </div>
             </div>
 
@@ -97,18 +147,21 @@
                     <div class="user-avatar">U</div>
                     <div class="user-info">
                         <h3 id="dash-username">...</h3>
-                        <p>在线</p>
+                        <p data-i18n="dashboard.online">En linea</p>
                     </div>
                 </div>
 
                 <div class="april-fool-notice">
-                    <p class="notice-title">祝你愚人节快乐！</p>
-                    <p>这是一个愚人节项目，意在通过刻意设计给用户带来不好的使用体验。</p>
-                    <p>项目源码：<a href="https://github.com/nhirsama/foolsignup" target="_blank">https://github.com/nhirsama/foolsignup</a></p>
-                    <p class="notice-warn">提醒：如果您在注册时使用了常用密码，建议立即修改其他网站的相同密码以确保安全。</p>
+                    <p class="notice-title" data-i18n="dashboard.notice.title">Feliz April Fools!</p>
+                    <p data-i18n="dashboard.notice.body">Este es un proyecto de broma que intencionalmente empeora la experiencia de registro.</p>
+                    <p>
+                        <span data-i18n="dashboard.notice.sourcePrefix">Codigo fuente:</span>
+                        <a href="https://github.com/nhirsama/foolsignup" target="_blank">https://github.com/nhirsama/foolsignup</a>
+                    </p>
+                    <p class="notice-warn" data-i18n="dashboard.notice.warn">Aviso: si usaste una contrasena habitual, cambiala tambien en otros sitios.</p>
                 </div>
 
-                <button class="secondary-button" id="logout-btn">安全退出系统</button>
+                <button class="secondary-button" id="logout-btn" data-i18n="dashboard.logout">Cerrar sesion segura</button>
             </div>
 
             <div id="alert-container" class="alert-container">
@@ -126,16 +179,16 @@
 <div id="captcha-modal" class="modal-overlay hidden">
     <div class="captcha-popup">
         <div class="captcha-title">
-            <span>安全验证</span>
+            <span data-i18n="captcha.title">Verificacion de seguridad</span>
             <button id="close-captcha-x" class="close-x">&times;</button>
         </div>
         <div class="captcha-body">
             <div class="captcha-header">
                 <div class="captcha-image-box">
-                    <img id="captcha-img" src="" alt="CAPTCHA" />
-                    <button id="refresh-captcha" class="refresh-btn" title="刷新验证码">⟳</button>
+                    <img id="captcha-img" src="" alt="CAPTCHA" data-i18n-alt="captcha.alt" />
+                    <button id="refresh-captcha" class="refresh-btn" title="Actualizar captcha" data-i18n-title="captcha.refreshTitle">⟳</button>
                 </div>
-                <div class="captcha-guide">请通过滑块定位并点击与图片一致的数字：</div>
+                <div class="captcha-guide" data-i18n="captcha.guide">Usa el deslizador y pulsa el numero que coincide con la imagen.</div>
             </div>
             <div class="captcha-main-area">
                 <div id="captcha-grid" class="captcha-grid"></div>
@@ -147,7 +200,7 @@
             </div>
         </div>
         <div class="captcha-footer">
-            <button type="button" id="close-captcha-btn" class="cancel-btn">取消</button>
+            <button type="button" id="close-captcha-btn" class="cancel-btn" data-i18n="captcha.cancel">Cancelar</button>
         </div>
     </div>
 </div>
@@ -324,6 +377,47 @@
         flex-direction: column;
         justify-content: center;
         isolation: isolate;
+    }
+
+    .language-toolbar {
+        position: relative;
+        z-index: 3;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+
+    .language-label {
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        color: #64748b;
+        text-transform: uppercase;
+        font-weight: 700;
+    }
+
+    .language-select {
+        min-width: 162px;
+        height: 38px;
+        padding: 0 34px 0 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.38);
+        background:
+            linear-gradient(45deg, transparent 50%, #64748b 50%) calc(100% - 16px) calc(50% - 2px) / 6px 6px no-repeat,
+            linear-gradient(135deg, #64748b 50%, transparent 50%) calc(100% - 11px) calc(50% - 2px) / 6px 6px no-repeat,
+            rgba(255, 255, 255, 0.9);
+        color: #334155;
+        font-size: 0.84rem;
+        font-weight: 600;
+        appearance: none;
+        outline: none;
+        cursor: pointer;
+    }
+
+    .language-select:focus {
+        border-color: rgba(11, 106, 103, 0.58);
+        box-shadow: 0 0 0 3px rgba(11, 106, 103, 0.11);
     }
 
     .card-glow {
@@ -1319,6 +1413,21 @@
     @media (max-width: 560px) {
         .login-container {
             max-width: 100%;
+        }
+
+        .language-toolbar {
+            margin-bottom: 12px;
+            gap: 8px;
+        }
+
+        .language-label {
+            font-size: 0.72rem;
+        }
+
+        .language-select {
+            min-width: 140px;
+            height: 36px;
+            font-size: 0.78rem;
         }
 
         .login-card {

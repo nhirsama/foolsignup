@@ -1,5 +1,6 @@
 import { create, get } from '@github/webauthn-json';
 
+import { applyI18n, initLanguageSwitcher, onLanguageChange, t } from './i18n';
 import { foolsignup } from './pb/auth.js';
 import { evaluatePasswordComplexity, getPasswordComplexityWidth, type PasswordComplexityResult } from './password-complexity';
 
@@ -63,6 +64,46 @@ function getRemainingSeconds(until: number): number {
     return Math.max(0, Math.ceil((until - Date.now()) / 1000));
 }
 
+function extractSeconds(message: string): number {
+    const match = message.match(/(\d{1,4})/);
+    return match ? parseInt(match[1], 10) : 0;
+}
+
+function localizeServerMessage(message: string): string {
+    const normalized = message.toLowerCase();
+    const seconds = extractSeconds(message);
+    const isRateLimitMessage = message.includes('频繁')
+        || normalized.includes('frequen')
+        || normalized.includes('too many')
+        || normalized.includes('rate');
+
+    if (
+        message.includes('PoW')
+        || message.includes('证明字符串')
+        || message.includes('哈希摘要')
+        || normalized.includes('proof')
+    ) {
+        return t('error.invalidCaptcha');
+    }
+    if (message.includes('验证码已过期') || normalized.includes('expired')) {
+        return t('error.codeExpired');
+    }
+    if (message.includes('密码复杂度不足') || normalized.includes('complexity')) {
+        return t('error.passwordWeak');
+    }
+    if (isRateLimitMessage && (message.includes('该邮箱域名发送过于频繁') || normalized.includes('domain'))) {
+        return t('error.domainRateLimit', { seconds: seconds || 60 });
+    }
+    if (isRateLimitMessage && (message.includes('该邮箱发送过于频繁') || normalized.includes('email'))) {
+        return t('error.emailRateLimit', { seconds: seconds || 60 });
+    }
+    if (/[\u4e00-\u9fff]/.test(message)) {
+        return t('error.server');
+    }
+
+    return message;
+}
+
 export function initRegistrationForm(): void {
     const mount = () => {
         const form = document.getElementById('uip-form') as HTMLFormElement | null;
@@ -81,6 +122,7 @@ export function initRegistrationForm(): void {
         const dashUsername = requireElement<HTMLElement>('dash-username');
         const formTitle = requireElement<HTMLElement>('form-title');
         const formSubtitle = requireElement<HTMLElement>('form-subtitle');
+        const languageSwitcher = requireElement<HTMLSelectElement>('language-switcher');
 
         const usernameField = requireElement<HTMLElement>('username-field');
         const userInput = requireElement<HTMLInputElement>('username');
@@ -126,12 +168,6 @@ export function initRegistrationForm(): void {
         let isSeededEmailValue = false;
         let pendingStageAfterSendCode: RegisterStage | null = null;
         let countdownTimer: number | null = null;
-
-        const registerStageTitle: Record<RegisterStage, string> = {
-            email: '创建账号',
-            verify: '输入验证码',
-            details: '设置账号',
-        };
 
         const defaultRegisterEmail = 'name@example.com';
         const generateRegistrationUsername = (): string => `User_${Math.floor(Math.random() * 899999 + 100000)}`;
@@ -199,7 +235,7 @@ export function initRegistrationForm(): void {
             }
 
             sendCodeBtn.disabled = false;
-            sendCodeBtn.textContent = registerStage === 'verify' ? '重新发送' : '发送验证码';
+            sendCodeBtn.textContent = registerStage === 'verify' ? t('action.resendCode') : t('action.sendCode');
             if (countdownTimer) {
                 window.clearInterval(countdownTimer);
                 countdownTimer = null;
@@ -225,11 +261,11 @@ export function initRegistrationForm(): void {
         };
 
         const syncCooldownFromRateLimit = (parsed: ParsedEmail, message: string): void => {
-            const secondsMatch = message.match(/(\d+)\s*秒/);
-            const seconds = secondsMatch ? parseInt(secondsMatch[1], 10) : 0;
+            const seconds = extractSeconds(message);
             if (!seconds) return;
 
-            if (message.includes('邮箱域名')) {
+            const normalized = message.toLowerCase();
+            if (message.includes('邮箱域名') || normalized.includes('domain')) {
                 setDomainCooldown(parsed, seconds);
             } else {
                 setEmailCooldown(parsed, seconds);
@@ -258,29 +294,33 @@ export function initRegistrationForm(): void {
             });
         };
 
-        const getFriendlyMessage = (msg: string): string => {
-            if (msg.includes('PoW') || msg.includes('证明字符串') || msg.includes('哈希摘要')) {
-                return '验证码无效，请重试';
+        const getRegisterStageTitle = (stage: RegisterStage): string => {
+            if (stage === 'email') return t('mode.register.stage.email');
+            if (stage === 'verify') return t('mode.register.stage.verify');
+            return t('mode.register.stage.details');
+        };
+
+        const applyModeText = (): void => {
+            formTitle.textContent = isLoginMode ? t('mode.login.title') : getRegisterStageTitle(registerStage);
+            formSubtitle.textContent = isLoginMode ? t('mode.login.subtitle') : '';
+            formSubtitle.classList.toggle('hidden', !isLoginMode);
+            toggleLink.textContent = isLoginMode ? t('action.switchToRegister') : t('action.switchToLogin');
+            twofaMsg.textContent = isSetup ? t('twofa.setupMessage') : t('twofa.verifyMessage');
+            twofaBtn.textContent = isSetup ? t('twofa.setupButton') : t('twofa.verifyButton');
+            userInput.placeholder = isLoginMode ? t('placeholder.username.login') : t('placeholder.username.register');
+
+            if (!isLoginMode) {
+                submitBtn.textContent = registerStage === 'details' ? t('action.createAccount') : t('action.continue');
+                registerBackBtn.textContent = t('action.back');
+            } else {
+                submitBtn.textContent = t('action.submit');
             }
-            if (msg.includes('验证码已过期')) {
-                return '验证码已失效，请重新获取';
-            }
-            if (msg.includes('密码复杂度不足')) {
-                return '密码强度不足';
-            }
-            if (msg.includes('该邮箱域名发送过于频繁')) {
-                return msg.replace('该邮箱域名', '该域名').replace('再试', '重试');
-            }
-            if (msg.includes('该邮箱发送过于频繁')) {
-                return msg.replace('该邮箱', '当前邮箱').replace('再试', '重试');
-            }
-            return msg;
         };
 
         const showError = (msg: string, code = 0, tid = ''): void => {
             loading.classList.add('hidden');
-            let displayMsg = getFriendlyMessage(msg);
-            if (tid && (code >= 500 || code === 0) && !msg.includes('请输入') && !msg.includes('一致')) {
+            let displayMsg = localizeServerMessage(msg);
+            if (tid && (code >= 500 || code === 0)) {
                 displayMsg += ` (ID: ${tid})`;
             }
             errorText.textContent = displayMsg;
@@ -317,7 +357,7 @@ export function initRegistrationForm(): void {
                 const buffer = await response.arrayBuffer();
                 const decoded = responseClass.decode(new Uint8Array(buffer));
                 if (!response.ok || (decoded.code && decoded.code !== 200)) {
-                    const err = new Error(decoded.msg || `服务器错误 (${response.status})`) as Error & { code?: number; traceId?: string };
+                    const err = new Error(decoded.msg || `${t('error.server')} (${response.status})`) as Error & { code?: number; traceId?: string };
                     err.code = decoded.code || response.status;
                     err.traceId = decoded.traceId;
                     throw err;
@@ -327,7 +367,7 @@ export function initRegistrationForm(): void {
 
             if (!response.ok) {
                 const text = await response.text();
-                const err = new Error(text || `请求失败 (${response.status})`) as Error & { code?: number };
+                const err = new Error(text || `${t('error.requestFailed')} (${response.status})`) as Error & { code?: number };
                 err.code = response.status;
                 throw err;
             }
@@ -359,14 +399,13 @@ export function initRegistrationForm(): void {
 
             if (registerStage === 'details' && !userInput.value) {
                 userInput.value = generateRegistrationUsername();
+                userInput.placeholder = t('placeholder.username.register');
             }
             if (registerStage === 'email' && !emailInput.value) {
                 seedDefaultEmail();
             }
 
-            formTitle.textContent = registerStageTitle[registerStage];
-            formSubtitle.textContent = '';
-            formSubtitle.classList.add('hidden');
+            applyModeText();
 
             usernameField.classList.toggle('hidden', registerStage !== 'details');
             emailField.classList.remove('hidden');
@@ -386,13 +425,8 @@ export function initRegistrationForm(): void {
             registerBackBtn.classList.toggle('is-highlighted-action', registerStage === 'details');
             submitBtn.classList.toggle('is-muted-action', registerStage === 'details');
 
-            submitBtn.textContent = registerStage === 'email'
-                ? '继续'
-                : registerStage === 'verify'
-                    ? '继续'
-                    : '创建账号';
             registerBackBtn.classList.toggle('hidden', registerStage === 'email');
-            registerBackBtn.textContent = '返回';
+            applyModeText();
 
             refreshSendCodeButton();
             updatePasswordComplexityUI();
@@ -417,7 +451,7 @@ export function initRegistrationForm(): void {
         const executeSendCode = async (value: string, key: string): Promise<void> => {
             const parsedEmail = normalizeEmailFieldValue();
             if (!parsedEmail) {
-                showError('请输入有效邮箱地址');
+                showError(t('error.invalidEmail'));
                 return;
             }
 
@@ -433,9 +467,9 @@ export function initRegistrationForm(): void {
                     headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
                     body: authpb.SendEmailCodeRequest.encode(req).finish(),
                 });
-                const result = await handleFetchResponse(res, authpb.SendEmailCodeResponse);
+                await handleFetchResponse(res, authpb.SendEmailCodeResponse);
                 if (!pendingStageAfterSendCode) {
-                    showSuccess(getFriendlyMessage(result.msg || '验证码已发送'));
+                    showSuccess(t('success.codeSent'));
                 }
                 applySendCodeSuccessCooldown(parsedEmail);
                 if (!isLoginMode && pendingStageAfterSendCode) {
@@ -446,7 +480,7 @@ export function initRegistrationForm(): void {
                 if (err.code === 429) {
                     syncCooldownFromRateLimit(parsedEmail, err.message || '');
                 }
-                showError(err.message || '发送失败', err.code, err.traceId || '');
+                showError(err.message || t('error.sendCodeFailed'), err.code, err.traceId || '');
             } finally {
                 pendingStageAfterSendCode = null;
                 loading.classList.add('hidden');
@@ -487,7 +521,8 @@ export function initRegistrationForm(): void {
             form.reset();
             authView.classList.remove('hidden');
             twofaView.classList.add('hidden');
-            toggleLink.textContent = isLoginMode ? '没有账号？点击注册' : '已有账号？点击登录';
+            applyI18n();
+            applyModeText();
 
             if (!isLoginMode) {
                 registerStage = 'email';
@@ -498,13 +533,11 @@ export function initRegistrationForm(): void {
                 ageInput.value = '';
                 setRegisterStage('email');
             } else {
-                formTitle.textContent = '账号登录';
-                formSubtitle.textContent = '管理您的个人身份及访问权限';
-                formSubtitle.classList.remove('hidden');
+                applyModeText();
                 userInput.value = '';
                 userInput.readOnly = false;
                 userInput.tabIndex = 0;
-                userInput.placeholder = '输入用户名';
+                userInput.placeholder = t('placeholder.username.login');
                 usernameField.classList.remove('hidden');
                 emailField.classList.add('hidden');
                 codeField.classList.add('hidden');
@@ -517,7 +550,6 @@ export function initRegistrationForm(): void {
                 formActions.classList.remove('is-details-stage');
                 registerBackBtn.classList.remove('is-highlighted-action');
                 submitBtn.classList.remove('is-muted-action');
-                submitBtn.textContent = '确认提交';
                 isSeededEmailValue = false;
             }
 
@@ -547,6 +579,17 @@ export function initRegistrationForm(): void {
             if (value < max) {
                 captchaSlider.value = (value + 1).toString();
                 renderGrid();
+            }
+        });
+
+        initLanguageSwitcher(languageSwitcher);
+        applyI18n();
+        onLanguageChange(() => {
+            applyI18n();
+            applyModeText();
+            refreshSendCodeButton();
+            if (!isLoginMode) {
+                userInput.placeholder = t('placeholder.username.register');
             }
         });
 
@@ -611,7 +654,7 @@ export function initRegistrationForm(): void {
 
             const parsedEmail = normalizeEmailFieldValue();
             if (!parsedEmail) {
-                showError(emailInput.value ? '请输入有效邮箱地址' : '请输入邮箱地址');
+                showError(emailInput.value ? t('error.invalidEmail') : t('error.missingEmail'));
                 return;
             }
 
@@ -650,11 +693,11 @@ export function initRegistrationForm(): void {
 
                 if (isLoginMode) {
                     if (!rawData.username) {
-                        showError('请输入用户名');
+                        showError(t('error.missingUsername'));
                         return;
                     }
                     if (!rawData.password) {
-                        showError('请输入密码');
+                        showError(t('error.missingPassword'));
                         return;
                     }
 
@@ -667,11 +710,11 @@ export function initRegistrationForm(): void {
                 } else {
                     const parsedEmail = normalizeEmailFieldValue();
                     if (!rawData.email) {
-                        showError('请输入邮箱地址');
+                        showError(t('error.missingEmail'));
                         return;
                     }
                     if (!parsedEmail) {
-                        showError('请输入有效邮箱地址');
+                        showError(t('error.invalidEmail'));
                         return;
                     }
 
@@ -682,7 +725,7 @@ export function initRegistrationForm(): void {
                             if (throttle.scope === 'email') {
                                 setRegisterStage('verify');
                             } else {
-                                showError(`该域名请求过于频繁，请 ${throttle.remaining} 秒后重试`);
+                                showError(t('error.domainTooFrequent', { seconds: throttle.remaining }));
                             }
                             return;
                         }
@@ -693,11 +736,11 @@ export function initRegistrationForm(): void {
 
                     if (registerStage === 'verify') {
                         if (!rawData.code) {
-                            showError('请输入验证码');
+                            showError(t('error.missingCode'));
                             return;
                         }
                         if (!(await verifyPoW(String(rawData.code)))) {
-                            showError('验证码无效，请重试');
+                            showError(t('error.invalidCaptcha'));
                             return;
                         }
 
@@ -706,50 +749,50 @@ export function initRegistrationForm(): void {
                     }
 
                     if (!rawData.age) {
-                        showError('请输入年龄');
+                        showError(t('error.missingAge'));
                         return;
                     }
                     if (!rawData.password) {
-                        showError('请输入密码');
+                        showError(t('error.missingPassword'));
                         return;
                     }
 
                     const password = String(rawData.password);
                     const complexity = updatePasswordComplexityUI();
                     if (password.length < 32) {
-                        showError('密码长度至少为 32 位');
+                        showError(t('error.passwordTooShort'));
                         return;
                     }
                     if (!/[a-z]/.test(password)) {
-                        showError('密码需包含小写字母');
+                        showError(t('error.passwordNeedLower'));
                         return;
                     }
                     if (!/[A-Z]/.test(password)) {
-                        showError('密码需包含大写字母');
+                        showError(t('error.passwordNeedUpper'));
                         return;
                     }
                     if (!/\d/.test(password)) {
-                        showError('密码需包含数字');
+                        showError(t('error.passwordNeedDigit'));
                         return;
                     }
                     if (!/[~!@#$%^&*()_\-+=|\\{}[\]:;"'<>,.?/]/.test(password)) {
-                        showError('密码需包含特殊字符');
+                        showError(t('error.passwordNeedSpecial'));
                         return;
                     }
                     if (complexity.level !== 'complex') {
-                        showError('密码强度不足');
+                        showError(t('error.passwordWeak'));
                         return;
                     }
                     if (rawData.password !== rawData['confirm-password']) {
-                        showError('两次输入的密码不一致');
+                        showError(t('error.passwordMismatch'));
                         return;
                     }
                     if (!rawData.code) {
-                        showError('请输入验证码');
+                        showError(t('error.missingCode'));
                         return;
                     }
                     if (!(await verifyPoW(String(rawData.code)))) {
-                        showError('验证码无效，请重试');
+                        showError(t('error.invalidCaptcha'));
                         return;
                     }
 
@@ -780,23 +823,22 @@ export function initRegistrationForm(): void {
                         isSetup = setup_2fa;
                         authView.classList.add('hidden');
                         twofaView.classList.remove('hidden');
-                        twofaMsg.textContent = isSetup ? '首次登录，请设置生物识别凭证' : '请使用生物识别验证身份';
-                        twofaBtn.textContent = isSetup ? '立即设置' : '立即验证';
+                        applyModeText();
                     } else {
                         location.reload();
                     }
                 } else {
                     isLoginMode = true;
                     updateUI();
-                    showSuccess('账号已创建，请登录');
+                    showSuccess(t('success.accountCreated'));
                 }
             } catch (error) {
                 const err = error as Error & { code?: number; traceId?: string };
-                if (!isLoginMode && registerStage === 'details' && (err.message.includes('验证码') || err.message.includes('PoW'))) {
+                if (!isLoginMode && registerStage === 'details' && (err.message.includes('验证码') || err.message.includes('PoW') || err.message.toLowerCase().includes('proof'))) {
                     codeInput.value = '';
                     setRegisterStage('verify');
                 }
-                showError(err.message || '请求失败，请稍后重试', err.code, err.traceId || '');
+                showError(err.message || t('error.requestFailed'), err.code, err.traceId || '');
             } finally {
                 loading.classList.add('hidden');
             }
@@ -848,7 +890,7 @@ export function initRegistrationForm(): void {
                 location.reload();
             } catch (error) {
                 const err = error as Error & { code?: number; traceId?: string };
-                showError(err.message || '验证失败', err.code, err.traceId || '');
+                showError(err.message || t('error.verifyFailed'), err.code, err.traceId || '');
             } finally {
                 loading.classList.add('hidden');
             }
