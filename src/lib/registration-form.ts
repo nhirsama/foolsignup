@@ -5,6 +5,15 @@ import { foolsignup } from './pb/auth.js';
 import { evaluatePasswordComplexity, getPasswordComplexityWidth, type PasswordComplexityResult } from './password-complexity';
 
 const authpb = foolsignup.auth.v1;
+const DASHBOARD_FIRST_VISIT_KEY = 'foolsignup_dashboard_first_visit_done';
+const DASHBOARD_ZH_CN_TEXT = {
+    online: '在线',
+    noticeTitle: '祝你愚人节快乐！',
+    noticeBody: '这是一个愚人节项目，意在通过刻意设计给用户带来不好的使用体验。',
+    sourcePrefix: '项目源码：',
+    noticeWarn: '提醒：如果您在注册时使用了常用密码，建议立即修改其他网站的相同密码以确保安全。',
+    logout: '安全退出系统',
+} as const;
 
 const commonEmailDomains = new Set([
     'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com', 'me.com', 'aol.com', 'live.com', 'msn.com',
@@ -120,6 +129,11 @@ export function initRegistrationForm(): void {
         const backToLogin = requireElement<HTMLElement>('back-to-login');
         const logoutBtn = requireElement<HTMLButtonElement>('logout-btn');
         const dashUsername = requireElement<HTMLElement>('dash-username');
+        const dashOnlineText = requireElement<HTMLElement>('dash-online-text');
+        const dashNoticeTitle = requireElement<HTMLElement>('dash-notice-title');
+        const dashNoticeBody = requireElement<HTMLElement>('dash-notice-body');
+        const dashSourcePrefix = requireElement<HTMLElement>('dash-source-prefix');
+        const dashNoticeWarn = requireElement<HTMLElement>('dash-notice-warn');
         const formTitle = requireElement<HTMLElement>('form-title');
         const formSubtitle = requireElement<HTMLElement>('form-subtitle');
         const languagePicker = requireElement<HTMLElement>('language-picker');
@@ -201,6 +215,12 @@ export function initRegistrationForm(): void {
 
         const languageLabelMap = new Map(LANGUAGE_OPTIONS.map((item) => [item.code, item.label] as const));
         let isLanguageMenuOpen = false;
+        let shouldForceDashboardChinese = true;
+        try {
+            shouldForceDashboardChinese = window.localStorage.getItem(DASHBOARD_FIRST_VISIT_KEY) !== '1';
+        } catch {
+            shouldForceDashboardChinese = true;
+        }
 
         const positionLanguageMenu = (): void => {
             const rect = languageTrigger.getBoundingClientRect();
@@ -378,6 +398,41 @@ export function initRegistrationForm(): void {
                 registerBackBtn.textContent = t('action.back');
             } else {
                 submitBtn.textContent = t('action.submit');
+            }
+        };
+
+        const applyDashboardText = (forceChinese = false): void => {
+            if (forceChinese) {
+                dashOnlineText.textContent = DASHBOARD_ZH_CN_TEXT.online;
+                dashNoticeTitle.textContent = DASHBOARD_ZH_CN_TEXT.noticeTitle;
+                dashNoticeBody.textContent = DASHBOARD_ZH_CN_TEXT.noticeBody;
+                dashSourcePrefix.textContent = DASHBOARD_ZH_CN_TEXT.sourcePrefix;
+                dashNoticeWarn.textContent = DASHBOARD_ZH_CN_TEXT.noticeWarn;
+                logoutBtn.textContent = DASHBOARD_ZH_CN_TEXT.logout;
+                return;
+            }
+
+            dashOnlineText.textContent = t('dashboard.online');
+            dashNoticeTitle.textContent = t('dashboard.notice.title');
+            dashNoticeBody.textContent = t('dashboard.notice.body');
+            dashSourcePrefix.textContent = t('dashboard.notice.sourcePrefix');
+            dashNoticeWarn.textContent = t('dashboard.notice.warn');
+            logoutBtn.textContent = t('dashboard.logout');
+        };
+
+        const showDashboard = (username: string): void => {
+            authView.classList.add('hidden');
+            dashboardView.classList.remove('hidden');
+            dashUsername.textContent = username;
+            applyDashboardText(shouldForceDashboardChinese);
+
+            if (shouldForceDashboardChinese) {
+                shouldForceDashboardChinese = false;
+                try {
+                    window.localStorage.setItem(DASHBOARD_FIRST_VISIT_KEY, '1');
+                } catch {
+                    // Ignore storage failures and keep current render.
+                }
             }
         };
 
@@ -571,9 +626,7 @@ export function initRegistrationForm(): void {
                 const buffer = await res.arrayBuffer();
                 const result = authpb.GetMeResponse.decode(new Uint8Array(buffer));
                 if (result.code === 200) {
-                    authView.classList.add('hidden');
-                    dashboardView.classList.remove('hidden');
-                    dashUsername.textContent = result.data.username;
+                    showDashboard(result.data.username);
                 }
             } catch (error) {
                 console.error('Check login failed', error);
@@ -655,6 +708,9 @@ export function initRegistrationForm(): void {
             applyModeText();
             refreshSendCodeButton();
             renderLanguageMenu();
+            if (!dashboardView.classList.contains('hidden')) {
+                applyDashboardText(false);
+            }
             if (!isLoginMode) {
                 userInput.placeholder = t('placeholder.username.register');
             }
