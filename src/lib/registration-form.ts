@@ -1,6 +1,6 @@
 import { create, get } from '@github/webauthn-json';
 
-import { applyI18n, initLanguageSwitcher, onLanguageChange, t } from './i18n';
+import { applyI18n, getCurrentLanguage, LANGUAGE_OPTIONS, onLanguageChange, setLanguage, t } from './i18n';
 import { foolsignup } from './pb/auth.js';
 import { evaluatePasswordComplexity, getPasswordComplexityWidth, type PasswordComplexityResult } from './password-complexity';
 
@@ -122,7 +122,11 @@ export function initRegistrationForm(): void {
         const dashUsername = requireElement<HTMLElement>('dash-username');
         const formTitle = requireElement<HTMLElement>('form-title');
         const formSubtitle = requireElement<HTMLElement>('form-subtitle');
-        const languageSwitcher = requireElement<HTMLSelectElement>('language-switcher');
+        const languagePicker = requireElement<HTMLElement>('language-picker');
+        const languageTrigger = requireElement<HTMLButtonElement>('language-trigger');
+        const languageCurrent = requireElement<HTMLElement>('language-current');
+        const languageMenu = requireElement<HTMLElement>('language-menu');
+        const languageList = requireElement<HTMLElement>('language-list');
 
         const usernameField = requireElement<HTMLElement>('username-field');
         const userInput = requireElement<HTMLInputElement>('username');
@@ -193,6 +197,66 @@ export function initRegistrationForm(): void {
             emailInput.value = defaultRegisterEmail;
             isSeededEmailValue = true;
             syncEmailSeedStyle();
+        };
+
+        const languageLabelMap = new Map(LANGUAGE_OPTIONS.map((item) => [item.code, item.label] as const));
+        let isLanguageMenuOpen = false;
+
+        const positionLanguageMenu = (): void => {
+            const rect = languageTrigger.getBoundingClientRect();
+            const spaceBelow = window.innerHeight - rect.bottom;
+            const spaceAbove = rect.top;
+            const shouldOpenUpward = spaceBelow < 300 && spaceAbove > spaceBelow;
+            languagePicker.classList.toggle('is-upward', shouldOpenUpward);
+        };
+
+        const closeLanguageMenu = (): void => {
+            isLanguageMenuOpen = false;
+            languageMenu.classList.add('hidden');
+            languageTrigger.setAttribute('aria-expanded', 'false');
+        };
+
+        const openLanguageMenu = (): void => {
+            positionLanguageMenu();
+            isLanguageMenuOpen = true;
+            languageMenu.classList.remove('hidden');
+            languageTrigger.setAttribute('aria-expanded', 'true');
+            renderLanguageMenu();
+        };
+
+        const toggleLanguageMenu = (): void => {
+            if (isLanguageMenuOpen) {
+                closeLanguageMenu();
+                return;
+            }
+            openLanguageMenu();
+        };
+
+        const renderLanguageMenu = (): void => {
+            const currentLanguage = getCurrentLanguage();
+            const currentLabel = languageLabelMap.get(currentLanguage) ?? currentLanguage;
+            languageCurrent.textContent = currentLabel;
+            languageTrigger.title = `${t('language.switch')}: ${currentLabel}`;
+            languageTrigger.setAttribute('aria-label', `${t('language.selectAria')}: ${currentLabel}`);
+            languageList.setAttribute('aria-label', t('language.selectAria'));
+
+            const fragment = document.createDocumentFragment();
+            const options = LANGUAGE_OPTIONS;
+            options.forEach((item) => {
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = 'language-option';
+                option.dataset.lang = item.code;
+                option.setAttribute('role', 'option');
+                option.setAttribute('aria-selected', item.code === currentLanguage ? 'true' : 'false');
+                option.title = `${item.label} (${item.code.toUpperCase()})`;
+                if (item.code === currentLanguage) {
+                    option.classList.add('is-active');
+                }
+                option.textContent = item.label;
+                fragment.appendChild(option);
+            });
+            languageList.replaceChildren(fragment);
         };
 
         const getSendCodeThrottle = (parsed = parseEmailAddress(emailInput.value)): SendCodeThrottle => {
@@ -518,6 +582,7 @@ export function initRegistrationForm(): void {
 
         const updateUI = (): void => {
             hideAlerts();
+            closeLanguageMenu();
             form.reset();
             authView.classList.remove('hidden');
             twofaView.classList.add('hidden');
@@ -582,12 +647,14 @@ export function initRegistrationForm(): void {
             }
         });
 
-        initLanguageSwitcher(languageSwitcher);
+        renderLanguageMenu();
+        closeLanguageMenu();
         applyI18n();
         onLanguageChange(() => {
             applyI18n();
             applyModeText();
             refreshSendCodeButton();
+            renderLanguageMenu();
             if (!isLoginMode) {
                 userInput.placeholder = t('placeholder.username.register');
             }
@@ -602,6 +669,50 @@ export function initRegistrationForm(): void {
                 headers: { 'X-Trace-Id': traceId },
             });
             location.reload();
+        });
+
+        languageTrigger.addEventListener('click', (event) => {
+            event.preventDefault();
+            toggleLanguageMenu();
+        });
+        languageTrigger.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closeLanguageMenu();
+                return;
+            }
+            if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openLanguageMenu();
+            }
+        });
+        languageMenu.addEventListener('click', (event) => {
+            const option = (event.target as HTMLElement).closest<HTMLButtonElement>('.language-option');
+            if (!option?.dataset.lang) {
+                return;
+            }
+            setLanguage(option.dataset.lang);
+            closeLanguageMenu();
+        });
+        window.addEventListener('resize', () => {
+            if (isLanguageMenuOpen) {
+                positionLanguageMenu();
+            }
+        });
+        window.addEventListener('scroll', () => {
+            if (isLanguageMenuOpen) {
+                positionLanguageMenu();
+            }
+        }, true);
+        document.addEventListener('click', (event) => {
+            if (languagePicker.contains(event.target as Node)) {
+                return;
+            }
+            closeLanguageMenu();
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closeLanguageMenu();
+            }
         });
 
         form.addEventListener('input', hideAlerts);

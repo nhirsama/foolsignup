@@ -17,13 +17,21 @@
             <div class="card-confetti card-confetti-b"></div>
             <div class="card-confetti card-confetti-c"></div>
             <div class="language-toolbar">
-                <label for="language-switcher" class="language-label" data-i18n="language.switch">Idioma</label>
-                <select
-                    id="language-switcher"
-                    class="language-select"
-                    data-i18n-aria-label="language.selectAria"
-                    aria-label="Language selector"
-                ></select>
+                <div class="language-picker" id="language-picker">
+                    <button
+                        type="button"
+                        id="language-trigger"
+                        class="language-trigger"
+                        aria-haspopup="listbox"
+                        aria-expanded="false"
+                    >
+                        <span id="language-current" class="language-current">Espanol</span>
+                        <span class="language-caret" aria-hidden="true"></span>
+                    </button>
+                    <div id="language-menu" class="language-menu hidden">
+                        <div id="language-list" class="language-list" role="listbox"></div>
+                    </div>
+                </div>
             </div>
             <div id="auth-view">
                 <div class="login-header">
@@ -377,47 +385,174 @@
         flex-direction: column;
         justify-content: center;
         isolation: isolate;
+        overflow: visible;
     }
 
     .language-toolbar {
         position: relative;
         z-index: 3;
         display: flex;
+        align-self: flex-end;
         justify-content: flex-end;
         align-items: center;
-        gap: 10px;
         margin-bottom: 14px;
     }
 
-    .language-label {
-        font-size: 0.78rem;
-        letter-spacing: 0.04em;
-        color: #64748b;
-        text-transform: uppercase;
+    .language-picker {
+        position: relative;
+        width: clamp(180px, 28vw, 240px);
+    }
+
+    .language-trigger {
+        width: 100%;
+        height: 40px;
+        padding: 0 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.32);
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.95));
+        color: #334155;
+        font-size: 0.82rem;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.64), 0 8px 16px rgba(15, 23, 42, 0.07);
+        transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 14px;
+        align-items: center;
+        gap: 6px;
+        text-align: left;
+    }
+
+    .language-trigger:hover {
+        border-color: rgba(11, 106, 103, 0.34);
+        transform: translateY(-1px);
+    }
+
+    .language-trigger:focus-visible {
+        outline: none;
+        border-color: rgba(11, 106, 103, 0.54);
+        box-shadow: 0 0 0 3px rgba(11, 106, 103, 0.11), 0 10px 22px rgba(11, 106, 103, 0.14);
+        transform: translateY(-1px);
+    }
+
+    .language-current {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: #0f172a;
+        font-size: 0.84rem;
+        font-weight: 600;
+    }
+
+    .language-caret {
+        width: 9px;
+        height: 9px;
+        border-right: 2px solid rgba(11, 106, 103, 0.74);
+        border-bottom: 2px solid rgba(11, 106, 103, 0.74);
+        transform: rotate(45deg) translateY(-1px);
+        justify-self: end;
+        transition: transform 0.18s ease;
+    }
+
+    .language-trigger[aria-expanded='true'] .language-caret {
+        transform: rotate(225deg) translateY(-1px);
+    }
+
+    .language-menu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 8px);
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.97));
+        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.16);
+        backdrop-filter: blur(10px);
+        padding: 6px;
+        z-index: 30;
+    }
+
+    .language-picker.is-upward .language-menu {
+        top: auto;
+        bottom: calc(100% + 8px);
+    }
+
+    .language-list {
+        max-height: min(42vh, 280px);
+        overflow: auto;
+        padding-right: 1px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .language-list::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .language-list::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.46);
+        border-radius: 999px;
+    }
+
+    :global(.language-option) {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        border-radius: 9px;
+        min-height: 44px;
+        padding: 0 12px;
+        text-align: left;
+        color: #334155;
+        font-size: 0.84rem;
+        cursor: pointer;
+        transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+        display: flex;
+        align-items: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 2px;
+    }
+
+    :global(.language-option:last-child) {
+        margin-bottom: 0;
+    }
+
+    :global(.language-option:hover) {
+        background: rgba(11, 106, 103, 0.1);
+        color: #0b6a67;
+    }
+
+    :global(.language-option.is-active) {
+        background: rgba(11, 106, 103, 0.16);
+        color: #0a4f4d;
         font-weight: 700;
     }
 
-    .language-select {
-        min-width: 162px;
-        height: 38px;
-        padding: 0 34px 0 12px;
-        border-radius: 12px;
-        border: 1px solid rgba(148, 163, 184, 0.38);
-        background:
-            linear-gradient(45deg, transparent 50%, #64748b 50%) calc(100% - 16px) calc(50% - 2px) / 6px 6px no-repeat,
-            linear-gradient(135deg, #64748b 50%, transparent 50%) calc(100% - 11px) calc(50% - 2px) / 6px 6px no-repeat,
-            rgba(255, 255, 255, 0.9);
-        color: #334155;
-        font-size: 0.84rem;
-        font-weight: 600;
-        appearance: none;
-        outline: none;
-        cursor: pointer;
+    :global(html[dir='rtl']) .language-toolbar {
+        align-self: flex-start;
     }
 
-    .language-select:focus {
-        border-color: rgba(11, 106, 103, 0.58);
-        box-shadow: 0 0 0 3px rgba(11, 106, 103, 0.11);
+    :global(html[dir='rtl']) .language-trigger {
+        text-align: right;
+        grid-template-columns: 14px minmax(0, 1fr);
+    }
+
+    :global(html[dir='rtl']) .language-caret {
+        justify-self: start;
+    }
+
+    :global(html[dir='rtl']) .language-menu {
+        right: auto;
+        left: 0;
+    }
+
+    :global(html[dir='rtl'] .language-option) {
+        text-align: right;
     }
 
     .card-glow {
@@ -1417,17 +1552,23 @@
 
         .language-toolbar {
             margin-bottom: 12px;
-            gap: 8px;
+            width: 100%;
+            justify-content: flex-end;
         }
 
-        .language-label {
-            font-size: 0.72rem;
+        .language-picker {
+            width: 100%;
         }
 
-        .language-select {
-            min-width: 140px;
-            height: 36px;
+        .language-trigger {
+            width: 100%;
+            height: 40px;
             font-size: 0.78rem;
+        }
+
+        .language-menu {
+            width: 100%;
+            max-height: min(42vh, 300px);
         }
 
         .login-card {
