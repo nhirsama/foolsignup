@@ -330,16 +330,37 @@ func Has2FA(userID int) bool {
 // GetVerificationCode 获取邮箱对应的有效验证码。
 func GetVerificationCode(email string) (string, bool) {
 	var code string
-	query := "SELECT code FROM verification_codes WHERE email = ? AND expires_at > ? LIMIT 1"
-	err := dbQueryRow(query, email, time.Now()).Scan(&code)
+	now := time.Now()
+	if err := cleanupExpiredVerificationCodes(email, now); err != nil {
+		log.Printf("cleanup verification codes failed: email=%s err=%v", email, err)
+		return "", false
+	}
+	query := "SELECT code FROM verification_codes WHERE email = ? AND expires_at > ? ORDER BY expires_at DESC LIMIT 1"
+	err := dbQueryRow(query, email, now).Scan(&code)
 	return code, err == nil
 }
 
 // SaveVerificationCode 存储一个新的验证码（支持多个并存）。
 func SaveVerificationCode(email, code string) error {
-	expiresAt := time.Now().Add(2 * time.Hour)
+	now := time.Now()
+	if err := cleanupExpiredVerificationCodes("", now); err != nil {
+		return err
+	}
+
+	expiresAt := now.Add(2 * time.Hour)
 	query := "INSERT INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?) ON CONFLICT(email, code) DO UPDATE SET expires_at = excluded.expires_at"
 	_, err := dbExec(query, email, code, expiresAt)
+	return err
+}
+
+func cleanupExpiredVerificationCodes(email string, now time.Time) error {
+	trimmedEmail := strings.TrimSpace(email)
+	if trimmedEmail == "" {
+		_, err := dbExec("DELETE FROM verification_codes WHERE expires_at <= ?", now)
+		return err
+	}
+
+	_, err := dbExec("DELETE FROM verification_codes WHERE email = ? AND expires_at <= ?", trimmedEmail, now)
 	return err
 }
 
@@ -422,15 +443,55 @@ func upsertThrottle(tx *sql.Tx, scope, identifier string, lastSentUnixMs int64) 
 	return err
 }
 
+// ReserveIPRequest 在请求前检查并占用 IP 维度的频率窗口。
+func ReserveIPRequest(scope, ip string, window time.Duration) (time.Duration, error) {
+	trimmedScope := strings.TrimSpace(scope)
+	trimmedIP := strings.TrimSpace(ip)
+	if trimmedScope == "" || trimmedIP == "" {
+		return 0, nil
+	}
+
+	now := time.Now()
+	sendThrottleMu.Lock()
+	defer sendThrottleMu.Unlock()
+
+	tx, err := Instance.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	ipScope := "ip:" + trimmedScope
+	remaining, err := getThrottleRemaining(tx, ipScope, trimmedIP, now, window)
+	if err != nil {
+		return 0, err
+	}
+	if remaining > 0 {
+		return remaining, nil
+	}
+
+	if err := upsertThrottle(tx, ipScope, trimmedIP, now.UnixMilli()); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return 0, nil
+}
+
 // VerifyCode 检查邮箱对应的任意一个未过期的验证码是否匹配。
 func VerifyCode(email, code string) bool {
-	var count int
-	query := "SELECT COUNT(*) FROM verification_codes WHERE email = ? AND code = ? AND expires_at > ?"
-	err := dbQueryRow(query, email, code, time.Now()).Scan(&count)
-	if err != nil {
+	now := time.Now()
+	if err := cleanupExpiredVerificationCodes(email, now); err != nil {
+		log.Printf("cleanup verification codes failed: email=%s err=%v", email, err)
 		return false
 	}
-	return count > 0
+
+	var one int
+	query := "SELECT 1 FROM verification_codes WHERE email = ? AND code = ? AND expires_at > ? LIMIT 1"
+	err := dbQueryRow(query, email, code, now).Scan(&one)
+	return err == nil
 }
 
 func createUser(username, email string, age int, passwordHash, plainPassword string) (int, error) {

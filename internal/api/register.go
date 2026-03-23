@@ -28,6 +28,20 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	retryAfter, err := db.ReserveIPRequest("register", getClientIP(r), 2*time.Second)
+	if err != nil {
+		res.Code = http.StatusInternalServerError
+		res.Msg = "服务器内部错误"
+		sendProto(w, res)
+		return
+	}
+	if retryAfter > 0 {
+		res.Code = http.StatusTooManyRequests
+		res.Msg = fmt.Sprintf("请求过于频繁，请 %d 秒后再试", retryAfterSeconds(retryAfter))
+		sendProto(w, res)
+		return
+	}
+
 	email, _, ok := normalizeEmailAddress(req.Email)
 	if !ok {
 		res.Code = http.StatusBadRequest
@@ -43,17 +57,8 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. PoW 挑战校验
-	challenge, ok := db.GetVerificationCode(email)
-	if !ok {
-		res.Code = http.StatusBadRequest
-		res.Msg = "验证码已过期"
-		sendProto(w, res)
-		return
-	}
-
-	// 校验：输入必须以 Challenge 开头，且满足哈希条件
-	if !strings.HasPrefix(req.Code, challenge) || !VerifyPoW(req.Code) {
+	// 1. PoW 挑战校验：challenge 前缀需与邮箱下未过期记录精确匹配，同时满足哈希难度。
+	if !isValidRegistrationPoW(email, req.Code) {
 		time.Sleep(3 * time.Second)
 		res.Code = http.StatusBadRequest
 		res.Msg = "PoW 验证码校验未通过，请检查字符串与哈希摘要"
@@ -117,4 +122,17 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 	res.Code = http.StatusOK
 	res.Msg = "注册成功，请登录"
 	sendProto(w, res)
+}
+
+func isValidRegistrationPoW(email, code string) bool {
+	proof := strings.TrimSpace(code)
+	if len(proof) < powChallengePrefixSize {
+		return false
+	}
+	if !VerifyPoW(proof) {
+		return false
+	}
+
+	challenge := proof[:powChallengePrefixSize]
+	return db.VerifyCode(email, challenge)
 }

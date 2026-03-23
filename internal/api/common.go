@@ -5,14 +5,20 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"math"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 )
 
-const maxProtoBodyBytes int64 = 1 << 20
+const (
+	maxProtoBodyBytes      int64 = 1 << 20
+	powChallengePrefixSize       = 16
+)
 
 var errProtoBodyTooLarge = errors.New("protobuf request body too large")
 
@@ -83,6 +89,33 @@ func setCorsHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Trace-Id")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
+}
+
+func getClientIP(r *http.Request) string {
+	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+		if idx := strings.IndexByte(xff, ','); idx >= 0 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return xff
+	}
+
+	if xrip := strings.TrimSpace(r.Header.Get("X-Real-IP")); xrip != "" {
+		return xrip
+	}
+
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err == nil && host != "" {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
+}
+
+func retryAfterSeconds(retryAfter time.Duration) int {
+	seconds := int(math.Ceil(retryAfter.Seconds()))
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
 }
 
 // readProto 从请求体中读取 Protobuf 二进制数据并反序列化。

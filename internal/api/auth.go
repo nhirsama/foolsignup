@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -23,6 +24,20 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 	var req authpb.LoginRequest
 	if err := readProto(r, &req); err != nil {
 		res.Code, res.Msg = protoReadError(err, "格式错误")
+		sendProto(w, res)
+		return
+	}
+
+	retryAfter, err := db.ReserveIPRequest("login", getClientIP(r), 1*time.Second)
+	if err != nil {
+		res.Code = http.StatusInternalServerError
+		res.Msg = "系统繁忙"
+		sendProto(w, res)
+		return
+	}
+	if retryAfter > 0 {
+		res.Code = http.StatusTooManyRequests
+		res.Msg = fmt.Sprintf("请求过于频繁，请 %d 秒后再试", retryAfterSeconds(retryAfter))
 		sendProto(w, res)
 		return
 	}
