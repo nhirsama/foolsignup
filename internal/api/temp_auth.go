@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -13,10 +12,7 @@ type tempAuthState struct {
 	ExpiresAt time.Time
 }
 
-var (
-	tempAuthStore = make(map[string]tempAuthState)
-	tempAuthMu    sync.RWMutex
-)
+var tempAuthStore = newExpiringStore[tempAuthState](tempAuthStoreMaxEntries)
 
 func issueTempAuthToken(userID int, ttl time.Duration) (string, error) {
 	token, err := generateSecureToken(32)
@@ -24,12 +20,13 @@ func issueTempAuthToken(userID int, ttl time.Duration) (string, error) {
 		return "", err
 	}
 
-	tempAuthMu.Lock()
-	tempAuthStore[token] = tempAuthState{
+	state := tempAuthState{
 		UserID:    userID,
 		ExpiresAt: time.Now().Add(ttl),
 	}
-	tempAuthMu.Unlock()
+	if err := tempAuthStore.Set(token, state, state.ExpiresAt); err != nil {
+		return "", err
+	}
 
 	return token, nil
 }
@@ -40,13 +37,8 @@ func getTempAuthTokenAndUserID(r *http.Request) (string, int, bool) {
 		return "", 0, false
 	}
 
-	tempAuthMu.RLock()
-	state, ok := tempAuthStore[cookie.Value]
-	tempAuthMu.RUnlock()
-	if !ok || time.Now().After(state.ExpiresAt) {
-		if ok {
-			clearTempAuthToken(cookie.Value)
-		}
+	state, ok := tempAuthStore.Get(cookie.Value)
+	if !ok {
 		return "", 0, false
 	}
 
@@ -57,9 +49,7 @@ func clearTempAuthToken(token string) {
 	if token == "" {
 		return
 	}
-	tempAuthMu.Lock()
-	delete(tempAuthStore, token)
-	tempAuthMu.Unlock()
+	tempAuthStore.Delete(token)
 }
 
 func generateSecureToken(n int) (string, error) {

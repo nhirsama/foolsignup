@@ -27,11 +27,10 @@ const (
 
 var (
 	// Instance is the global database connection instance.
-	Instance *sql.DB
-	once     sync.Once
-	dialect  = dbTypeSQLite
-
-	sendThrottleMu sync.Mutex
+	Instance             *sql.DB
+	once                 sync.Once
+	dialect              = dbTypeSQLite
+	requestThrottleLocks = newStripedMutex(256)
 )
 
 // InitDB initializes the database connection and creates necessary tables.
@@ -173,7 +172,10 @@ func schemaForDialect() string {
 			backup_eligible BOOLEAN NOT NULL DEFAULT FALSE,
 			backup_state BOOLEAN NOT NULL DEFAULT FALSE,
 			FOREIGN KEY (user_id) REFERENCES users(id)
-		);`
+		);
+		CREATE INDEX IF NOT EXISTS idx_verification_codes_expires_at ON verification_codes (expires_at);
+		CREATE INDEX IF NOT EXISTS idx_verification_codes_email_expires_at ON verification_codes (email, expires_at);
+		CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user_id ON webauthn_credentials (user_id);`
 	}
 
 	return `
@@ -213,18 +215,27 @@ func schemaForDialect() string {
 		backup_eligible BOOLEAN NOT NULL DEFAULT 0,
 		backup_state BOOLEAN NOT NULL DEFAULT 0,
 		FOREIGN KEY (user_id) REFERENCES users(id)
-	);`
+	);
+	CREATE INDEX IF NOT EXISTS idx_verification_codes_expires_at ON verification_codes (expires_at);
+	CREATE INDEX IF NOT EXISTS idx_verification_codes_email_expires_at ON verification_codes (email, expires_at);
+	CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user_id ON webauthn_credentials (user_id);`
 }
 
 func applyLegacyMigrations() {
 	if isPostgres() {
 		_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN IF NOT EXISTS backup_eligible BOOLEAN NOT NULL DEFAULT FALSE")
 		_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN IF NOT EXISTS backup_state BOOLEAN NOT NULL DEFAULT FALSE")
+		_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_verification_codes_expires_at ON verification_codes (expires_at)")
+		_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_verification_codes_email_expires_at ON verification_codes (email, expires_at)")
+		_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user_id ON webauthn_credentials (user_id)")
 		return
 	}
 
 	_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN backup_eligible BOOLEAN NOT NULL DEFAULT 0")
 	_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN backup_state BOOLEAN NOT NULL DEFAULT 0")
+	_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_verification_codes_expires_at ON verification_codes (expires_at)")
+	_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_verification_codes_email_expires_at ON verification_codes (email, expires_at)")
+	_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user_id ON webauthn_credentials (user_id)")
 }
 
 func bindPlaceholders(query string) string {
@@ -372,8 +383,12 @@ func ReserveVerificationEmailSend(email, domain string, applyDomainLimit bool) (
 	)
 
 	now := time.Now()
-	sendThrottleMu.Lock()
-	defer sendThrottleMu.Unlock()
+	lockKeys := []string{scopeEmail + ":" + email}
+	if applyDomainLimit {
+		lockKeys = append(lockKeys, scopeDomain+":"+domain)
+	}
+	unlock := requestThrottleLocks.LockKeys(lockKeys...)
+	defer unlock()
 
 	tx, err := Instance.Begin()
 	if err != nil {
@@ -452,8 +467,8 @@ func ReserveIPRequest(scope, ip string, window time.Duration) (time.Duration, er
 	}
 
 	now := time.Now()
-	sendThrottleMu.Lock()
-	defer sendThrottleMu.Unlock()
+	unlock := requestThrottleLocks.LockKeys("ip:" + trimmedScope + ":" + trimmedIP)
+	defer unlock()
 
 	tx, err := Instance.Begin()
 	if err != nil {

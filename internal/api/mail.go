@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"foolsignup/internal/db"
 	"foolsignup/internal/mail"
@@ -35,7 +34,23 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	retryAfter, err := db.ReserveIPRequest("send_code", getClientIP(r), 2*time.Second)
+	if code, msg, ok := validateMaxBytes(req.Email, maxEmailBytes, "邮箱地址过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
+	if code, msg, ok := validateMaxBytes(req.CaptchaKey, maxCaptchaKeyBytes, "验证码标识过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
+	if code, msg, ok := validateMaxBytes(req.CaptchaValue, maxCaptchaValueBytes, "验证码答案过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
+
+	retryAfter, err := db.ReserveIPRequest("send_code", getClientIP(r), sendCodeRateLimitWindow)
 	if err != nil {
 		res.Code = http.StatusInternalServerError
 		res.Msg = "系统繁忙"
@@ -101,6 +116,14 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 		sendProto(w, res)
 		return
 	}
+
+	if !tryAcquireSlot(mailSendSlots) {
+		res.Code = http.StatusServiceUnavailable
+		res.Msg = "邮件服务繁忙，请稍后重试"
+		sendProto(w, res)
+		return
+	}
+	defer releaseSlot(mailSendSlots)
 
 	challenge, _ := generateRandomHex(16)
 	if err := db.SaveVerificationCode(email, challenge); err != nil {

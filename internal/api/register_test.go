@@ -66,4 +66,3 @@ func TestIsValidRegistrationPoWRejectsMalformedProof(t *testing.T) {
 		t.Fatal("expected non-pow proof to fail")
 	}
 }
-

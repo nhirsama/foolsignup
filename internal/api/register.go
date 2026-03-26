@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"foolsignup/internal/db"
 	"foolsignup/internal/password"
@@ -28,7 +27,34 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	retryAfter, err := db.ReserveIPRequest("register", getClientIP(r), 2*time.Second)
+	if code, msg, ok := validateMaxBytes(req.Username, maxUsernameBytes, "用户名过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
+	if code, msg, ok := validateMaxBytes(req.Email, maxEmailBytes, "邮箱地址过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
+	if code, msg, ok := validateMaxBytes(req.Password, maxPasswordBytes, "密码过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
+	if code, msg, ok := validateMaxBytes(req.Code, maxProofBytes, "PoW 字符串过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
+	if strings.TrimSpace(req.Username) == "" || req.Password == "" {
+		res.Code = http.StatusBadRequest
+		res.Msg = "用户名和密码不能为空"
+		sendProto(w, res)
+		return
+	}
+
+	retryAfter, err := db.ReserveIPRequest("register", getClientIP(r), registerRateLimitWindow)
 	if err != nil {
 		res.Code = http.StatusInternalServerError
 		res.Msg = "服务器内部错误"
@@ -59,7 +85,6 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 
 	// 1. PoW 挑战校验：challenge 前缀需与邮箱下未过期记录精确匹配，同时满足哈希难度。
 	if !isValidRegistrationPoW(email, req.Code) {
-		time.Sleep(3 * time.Second)
 		res.Code = http.StatusBadRequest
 		res.Msg = "PoW 验证码校验未通过，请检查字符串与哈希摘要"
 		sendProto(w, res)
