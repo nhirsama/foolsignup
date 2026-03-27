@@ -176,10 +176,9 @@
             </div>
 
             <div id="alert-container" class="alert-container">
-                <div id="error-alert" class="alert error hidden">
-                    <span id="error-text"></span>
+                <div id="status-alert" class="alert hidden">
+                    <span id="status-text"></span>
                 </div>
-                <div id="success-alert" class="alert success hidden"></div>
             </div>
 
             <div id="loading-overlay" class="hidden"><div class="spinner"></div></div>
@@ -200,6 +199,11 @@
                     <button id="refresh-captcha" class="refresh-btn" title="Actualizar captcha" data-i18n-title="captcha.refreshTitle">⟳</button>
                 </div>
                 <div class="captcha-guide" data-i18n="captcha.guide">Usa el deslizador y pulsa el numero que coincide con la imagen.</div>
+            </div>
+            <div class="captcha-status-slot">
+                <div id="captcha-status-alert" class="alert hidden">
+                    <span id="captcha-status-text"></span>
+                </div>
             </div>
             <div class="captcha-main-area">
                 <div id="captcha-grid" class="captcha-grid"></div>
@@ -674,7 +678,7 @@
         letter-spacing: 0.01em;
     }
 
-    input {
+    input:not([type='range']) {
         width: 100%;
         height: 52px;
         padding: 0 16px;
@@ -687,11 +691,11 @@
         transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease;
     }
 
-    input::placeholder {
+    input:not([type='range'])::placeholder {
         color: #94a3b8;
     }
 
-    input:focus {
+    input:not([type='range']):focus {
         outline: none;
         border-color: rgba(11, 106, 103, 0.6);
         box-shadow: 0 0 0 4px rgba(11, 106, 103, 0.11);
@@ -699,7 +703,7 @@
         background: rgba(255, 255, 255, 0.98);
     }
 
-    input[readonly] {
+    input:not([type='range'])[readonly] {
         background: rgba(248, 250, 252, 0.94);
         color: #475569;
         cursor: default;
@@ -999,16 +1003,33 @@
         backdrop-filter: blur(10px);
     }
 
-    .alert.error {
+    .alert.is-error {
         background: rgba(254, 226, 226, 0.82);
         color: var(--error);
         border-color: rgba(239, 68, 68, 0.16);
     }
 
-    .alert.success {
+    .alert.is-success {
         background: rgba(220, 252, 231, 0.82);
         color: var(--success);
         border-color: rgba(34, 197, 94, 0.16);
+    }
+
+    .alert.is-warning {
+        background: rgba(254, 243, 199, 0.88);
+        color: #92400e;
+        border-color: rgba(245, 158, 11, 0.24);
+    }
+
+    .alert.is-info {
+        background: rgba(219, 234, 254, 0.86);
+        color: #1d4ed8;
+        border-color: rgba(59, 130, 246, 0.2);
+    }
+
+    .captcha-status-slot {
+        padding: 0 18px 18px;
+        background: rgba(255, 255, 255, 0.95);
     }
 
     .hidden {
@@ -1327,14 +1348,16 @@
     }
 
     .captcha-main-area {
-        display: flex;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 36px;
+        align-items: stretch;
         gap: 16px;
         padding: 18px;
         background: rgba(255, 255, 255, 0.95);
     }
 
     .captcha-grid {
-        flex: 1;
+        min-width: 0;
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         grid-template-rows: repeat(5, 1fr);
@@ -1381,10 +1404,12 @@
     }
 
     .captcha-slider-box {
-        width: 30px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
+        width: 36px;
+        min-height: 252px;
+        display: grid;
+        grid-template-rows: 28px minmax(0, 1fr) 28px;
+        justify-items: center;
+        align-items: stretch;
         gap: 8px;
     }
 
@@ -1411,50 +1436,24 @@
     }
 
     #captcha-nav-slider {
-        -webkit-appearance: none;
-        appearance: none;
-        width: 16px;
-        flex: 1;
+        display: block;
+        width: 28px;
+        height: 100%;
         margin: 0;
         padding: 0;
         border: 0;
         outline: none;
         background: transparent;
+        accent-color: var(--primary);
         writing-mode: vertical-lr;
-        direction: rtl;
-    }
-
-    #captcha-nav-slider::-webkit-slider-runnable-track {
-        width: 6px;
-        border-radius: 999px;
-        background: rgba(203, 213, 225, 0.74);
-    }
-
-    #captcha-nav-slider::-moz-range-track {
-        width: 6px;
-        border-radius: 999px;
-        background: rgba(203, 213, 225, 0.74);
-    }
-
-    #captcha-nav-slider::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        width: 18px;
-        height: 18px;
-        border-radius: 999px;
-        background: #fff;
-        border: 2px solid var(--primary);
+        direction: ltr;
         cursor: pointer;
-        box-shadow: 0 8px 16px rgba(11, 106, 103, 0.16);
     }
 
-    #captcha-nav-slider::-moz-range-thumb {
-        width: 18px;
-        height: 18px;
+    #captcha-nav-slider:focus-visible {
+        outline: 2px solid rgba(11, 106, 103, 0.22);
+        outline-offset: 3px;
         border-radius: 999px;
-        background: #fff;
-        border: 2px solid var(--primary);
-        cursor: pointer;
-        box-shadow: 0 8px 16px rgba(11, 106, 103, 0.16);
     }
 
     .captcha-footer {
@@ -1662,7 +1661,7 @@
             line-height: 1.65;
         }
 
-        input,
+        input:not([type='range']),
         .step-btn,
         .inline-button,
         .secondary-button,
@@ -1773,9 +1772,14 @@
         .captcha-main-area {
             gap: 10px;
             padding: 12px;
+            grid-template-columns: minmax(0, 1fr) 30px;
         }
 
         .captcha-turnstile {
+            padding: 0 12px 12px;
+        }
+
+        .captcha-status-slot {
             padding: 0 12px 12px;
         }
 
@@ -1791,7 +1795,9 @@
         }
 
         .captcha-slider-box {
-            width: 26px;
+            width: 30px;
+            min-height: 220px;
+            grid-template-rows: 24px minmax(0, 1fr) 24px;
         }
 
         .slider-adjust-btn {

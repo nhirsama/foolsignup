@@ -40,6 +40,9 @@ type SendCodeThrottle = {
     scope: '' | 'email' | 'domain';
 };
 
+type AlertTone = 'error' | 'success' | 'warning' | 'info';
+type AlertTarget = 'page' | 'captcha';
+
 type ProtoDecoder = {
     decode(input: Uint8Array): any;
 };
@@ -101,13 +104,14 @@ function extractSeconds(message: string): number {
     return match ? parseInt(match[1], 10) : 0;
 }
 
-function localizeServerMessage(message: string): string {
+function localizeServerMessage(message: string, code = 0): string {
     const normalized = message.toLowerCase();
     const seconds = extractSeconds(message);
-    const isRateLimitMessage = message.includes('频繁')
+    const isRateLimitMessage = code === 429
+        || message.includes('频繁')
         || normalized.includes('frequen')
         || normalized.includes('too many')
-        || normalized.includes('rate');
+        || normalized.includes('rate limit');
 
     if (
         message.includes('PoW')
@@ -120,8 +124,28 @@ function localizeServerMessage(message: string): string {
     if (message.includes('验证码已过期') || normalized.includes('expired')) {
         return t('error.codeExpired');
     }
-    if (message.includes('Cloudflare') || message.includes('人机验证') || normalized.includes('turnstile')) {
+    if (message.includes('请先完成 Cloudflare 人机验证')) {
         return t('error.missingTurnstile');
+    }
+    if (
+        message.includes('Cloudflare 人机验证失败')
+        || normalized.includes('turnstile token rejected')
+    ) {
+        return t('error.verifyFailed');
+    }
+    if (
+        message.includes('Cloudflare 验证服务繁忙')
+        || normalized.includes('turnstile unavailable')
+    ) {
+        return t('error.requestFailed');
+    }
+    if (
+        message.includes('人机验证未通过或已过期')
+        || message.includes('Cloudflare')
+        || message.includes('人机验证')
+        || normalized.includes('turnstile')
+    ) {
+        return t('error.verifyFailed');
     }
     if (message.includes('密码复杂度不足') || normalized.includes('complexity')) {
         return t('error.passwordWeak');
@@ -132,8 +156,26 @@ function localizeServerMessage(message: string): string {
     if (isRateLimitMessage && (message.includes('该邮箱发送过于频繁') || normalized.includes('email'))) {
         return t('error.emailRateLimit', { seconds: seconds || 60 });
     }
+    if (isRateLimitMessage && seconds > 0) {
+        return t('error.requestTooFrequent', { seconds });
+    }
+    if (
+        message.includes('验证码服务繁忙')
+        || message.includes('邮件服务繁忙')
+        || message.includes('注册服务繁忙')
+        || message.includes('登录服务繁忙')
+        || message.includes('系统繁忙')
+        || message.includes('繁忙')
+        || normalized.includes('busy')
+        || normalized.includes('unavailable')
+    ) {
+        return t('error.requestFailed');
+    }
     if (/[\u4e00-\u9fff]/.test(message)) {
-        return t('error.server');
+        if (code >= 500 || code === 0) {
+            return t('error.server');
+        }
+        return message;
     }
 
     return message;
@@ -198,10 +240,11 @@ export function initRegistrationForm(): void {
         const captchaSlider = requireElement<HTMLInputElement>('captcha-nav-slider');
         const captchaTurnstileField = requireElement<HTMLElement>('captcha-turnstile-field');
         const captchaTurnstileWidget = requireElement<HTMLElement>('captcha-turnstile-widget');
+        const captchaStatusAlert = requireElement<HTMLElement>('captcha-status-alert');
+        const captchaStatusText = requireElement<HTMLElement>('captcha-status-text');
 
-        const successAlert = requireElement<HTMLElement>('success-alert');
-        const errorAlert = requireElement<HTMLElement>('error-alert');
-        const errorText = requireElement<HTMLElement>('error-text');
+        const pageStatusAlert = requireElement<HTMLElement>('status-alert');
+        const pageStatusText = requireElement<HTMLElement>('status-text');
         const loading = requireElement<HTMLElement>('loading-overlay');
 
         const traceId = Math.random().toString(36).substring(2, 15);
@@ -389,9 +432,86 @@ export function initRegistrationForm(): void {
             refreshSendCodeButton();
         };
 
+        const getAlertElements = (target: AlertTarget): { alert: HTMLElement; text: HTMLElement } => {
+            if (target === 'captcha') {
+                return { alert: captchaStatusAlert, text: captchaStatusText };
+            }
+            return { alert: pageStatusAlert, text: pageStatusText };
+        };
+
+        const hideAlert = (target: AlertTarget): void => {
+            const { alert } = getAlertElements(target);
+            alert.className = 'alert hidden';
+        };
+
         const hideAlerts = (): void => {
-            errorAlert.classList.add('hidden');
-            successAlert.classList.add('hidden');
+            hideAlert('page');
+            hideAlert('captcha');
+        };
+
+        const getNoticeMessages = (): Set<string> => new Set([
+            t('error.invalidCaptcha'),
+            t('error.codeExpired'),
+            t('error.passwordWeak'),
+            t('error.domainRateLimit', { seconds: 60 }),
+            t('error.emailRateLimit', { seconds: 60 }),
+            t('error.requestTooFrequent', { seconds: 60 }),
+            t('error.invalidEmail'),
+            t('error.missingEmail'),
+            t('error.missingUsername'),
+            t('error.missingPassword'),
+            t('error.missingCode'),
+            t('error.missingAge'),
+            t('error.missingTurnstile'),
+            t('error.passwordTooShort'),
+            t('error.passwordNeedLower'),
+            t('error.passwordNeedUpper'),
+            t('error.passwordNeedDigit'),
+            t('error.passwordNeedSpecial'),
+            t('error.passwordMismatch'),
+            t('error.domainTooFrequent', { seconds: 60 }),
+        ]);
+
+        const resolveAlertTone = (displayMsg: string, code = 0, rawMsg = displayMsg): AlertTone => {
+            const normalizedRaw = rawMsg.toLowerCase();
+
+            if (
+                rawMsg.includes('繁忙')
+                || normalizedRaw.includes('busy')
+                || normalizedRaw.includes('unavailable')
+            ) {
+                return 'info';
+            }
+            if (
+                code >= 500
+                || normalizedRaw.includes('failed to fetch')
+                || normalizedRaw.includes('networkerror')
+            ) {
+                return 'error';
+            }
+            if (
+                code === 429
+                || rawMsg.includes('频繁')
+                || normalizedRaw.includes('too many')
+                || normalizedRaw.includes('frequen')
+                || normalizedRaw.includes('rate limit')
+            ) {
+                return 'warning';
+            }
+            if (
+                getNoticeMessages().has(displayMsg)
+                || (code >= 400 && code < 500)
+            ) {
+                return 'warning';
+            }
+            return 'warning';
+        };
+
+        const showAlert = (msg: string, tone: AlertTone, target: AlertTarget = 'page'): void => {
+            const { alert, text } = getAlertElements(target);
+            text.textContent = msg;
+            alert.className = `alert is-${tone}`;
+            alert.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         };
 
         const focusFieldForStage = (): void => {
@@ -468,22 +588,18 @@ export function initRegistrationForm(): void {
             }
         };
 
-        const showError = (msg: string, code = 0, tid = ''): void => {
+        const showError = (msg: string, code = 0, tid = '', target: AlertTarget = 'page'): void => {
             loading.classList.add('hidden');
-            let displayMsg = localizeServerMessage(msg);
-            if (tid && (code >= 500 || code === 0)) {
+            let displayMsg = localizeServerMessage(msg, code);
+            const tone = resolveAlertTone(displayMsg, code, msg);
+            if (tid && tone === 'error') {
                 displayMsg += ` (ID: ${tid})`;
             }
-            errorText.textContent = displayMsg;
-            errorAlert.classList.remove('hidden');
-            successAlert.classList.add('hidden');
-            errorAlert.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            showAlert(displayMsg, tone, target);
         };
 
         const showSuccess = (msg: string): void => {
-            successAlert.textContent = msg;
-            successAlert.classList.remove('hidden');
-            errorAlert.classList.add('hidden');
+            showAlert(msg, 'success', 'page');
         };
 
         const updatePasswordComplexityUI = (): PasswordComplexityResult => {
@@ -541,14 +657,13 @@ export function initRegistrationForm(): void {
             pendingStageAfterSendCode = nextStage;
             hideAlerts();
             captchaModal.classList.remove('hidden');
+            clearCaptchaState();
             renderGrid();
             captchaTurnstileField.classList.toggle('hidden', !turnstileSiteKey);
             if (turnstileSiteKey) {
                 void ensureSendCodeTurnstile();
             }
-            if (!(await fetchNewCaptcha())) {
-                closeCaptcha();
-            }
+            await fetchNewCaptcha(false);
         };
 
         const setRegisterStage = (nextStage: RegisterStage): void => {
@@ -591,7 +706,12 @@ export function initRegistrationForm(): void {
             focusFieldForStage();
         };
 
-        const fetchNewCaptcha = async (): Promise<boolean> => {
+        const clearCaptchaState = (): void => {
+            captchaImg.removeAttribute('src');
+            delete captchaImg.dataset.key;
+        };
+
+        const fetchNewCaptcha = async (preserveCurrentOnFailure = false): Promise<boolean> => {
             try {
                 const res = await fetch(`${apiUrl}/api/captcha`, {
                     headers: { 'X-Trace-Id': traceId },
@@ -602,10 +722,14 @@ export function initRegistrationForm(): void {
                 }
                 captchaImg.src = result.data.image;
                 captchaImg.dataset.key = result.data.captchaKey;
+                hideAlert('captcha');
                 return true;
             } catch (error) {
+                if (!preserveCurrentOnFailure) {
+                    clearCaptchaState();
+                }
                 const err = error as Error & { code?: number; traceId?: string };
-                showError(err.message || t('error.verifyFailed'), err.code, err.traceId || '');
+                showError(err.message || t('error.verifyFailed'), err.code, err.traceId || '', 'captcha');
                 return false;
             }
         };
@@ -613,7 +737,7 @@ export function initRegistrationForm(): void {
         const executeSendCode = async (value: string, key: string): Promise<void> => {
             const parsedEmail = normalizeEmailFieldValue();
             if (!parsedEmail) {
-                showError(t('error.invalidEmail'));
+                showError(t('error.invalidEmail'), 0, '', 'captcha');
                 return;
             }
 
@@ -631,6 +755,7 @@ export function initRegistrationForm(): void {
                     body: authpb.SendEmailCodeRequest.encode(req).finish(),
                 });
                 await handleFetchResponse(res, authpb.SendEmailCodeResponse);
+                captchaModal.classList.add('hidden');
                 if (!pendingStageAfterSendCode) {
                     showSuccess(t('success.codeSent'));
                 }
@@ -643,7 +768,7 @@ export function initRegistrationForm(): void {
                 if (err.code === 429) {
                     syncCooldownFromRateLimit(parsedEmail, err.message || '');
                 }
-                showError(err.message || t('error.sendCodeFailed'), err.code, err.traceId || '');
+                showError(err.message || t('error.sendCodeFailed'), err.code, err.traceId || '', 'captcha');
             } finally {
                 pendingStageAfterSendCode = null;
                 resetSendCodeTurnstile();
@@ -742,7 +867,7 @@ export function initRegistrationForm(): void {
 
                 resetSendCodeTurnstile();
             } catch {
-                showError(t('error.verifyFailed'));
+                showError(t('error.verifyFailed'), 0, '', 'captcha');
             }
         };
 
@@ -940,22 +1065,27 @@ export function initRegistrationForm(): void {
 
         captchaSlider.addEventListener('input', renderGrid);
         requireElement<HTMLButtonElement>('refresh-captcha').addEventListener('click', () => {
-            void fetchNewCaptcha();
+            void fetchNewCaptcha(true);
         });
         captchaGrid.addEventListener('click', (event) => {
             const btn = (event.target as HTMLElement).closest('.captcha-btn') as HTMLButtonElement | null;
             if (!btn) return;
-            if (turnstileSiteKey && !sendCodeTurnstileToken) {
-                showError(t('error.missingTurnstile'));
+            if (!captchaImg.dataset.key) {
+                showError(t('error.verifyFailed'), 0, '', 'captcha');
                 return;
             }
-            captchaModal.classList.add('hidden');
+            if (turnstileSiteKey && !sendCodeTurnstileToken) {
+                showError(t('error.missingTurnstile'), 0, '', 'captcha');
+                return;
+            }
             void executeSendCode(btn.textContent ?? '', captchaImg.dataset.key ?? '');
         });
 
         const closeCaptcha = (): void => {
             pendingStageAfterSendCode = null;
             captchaModal.classList.add('hidden');
+            clearCaptchaState();
+            hideAlert('captcha');
             resetSendCodeTurnstile();
         };
         requireElement<HTMLButtonElement>('close-captcha-x').addEventListener('click', closeCaptcha);
