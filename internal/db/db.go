@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -21,17 +22,19 @@ import (
 )
 
 const (
-	dbTypeSQLite   = "sqlite"
-	dbTypePostgres = "postgres"
+	dbTypeSQLite             = "sqlite"
+	dbTypePostgres           = "postgres"
+	transientCleanupInterval = 30 * time.Second
+	registrationAttemptTTL   = 24 * time.Hour
 )
 
 var (
 	// Instance is the global database connection instance.
-	Instance *sql.DB
-	once     sync.Once
-	dialect  = dbTypeSQLite
-
-	sendThrottleMu sync.Mutex
+	Instance             *sql.DB
+	once                 sync.Once
+	dialect              = dbTypeSQLite
+	requestThrottleLocks = newStripedMutex(256)
+	nextTransientCleanup atomic.Int64
 )
 
 // InitDB initializes the database connection and creates necessary tables.
@@ -48,6 +51,7 @@ func InitDB() {
 		if err != nil {
 			log.Fatalf("failed to open database: %v", err)
 		}
+		configureConnectionPool(Instance, dialect)
 
 		if err := Instance.Ping(); err != nil {
 			log.Fatalf("failed to ping database: %v", err)
@@ -152,16 +156,18 @@ func schemaForDialect() string {
 			expires_at TIMESTAMPTZ NOT NULL,
 			PRIMARY KEY (email, code)
 		);
-		CREATE TABLE IF NOT EXISTS email_send_throttles (
-			scope TEXT NOT NULL,
-			identifier TEXT NOT NULL,
-			last_sent_unix_ms BIGINT NOT NULL,
-			PRIMARY KEY (scope, identifier)
-		);
-		CREATE TABLE IF NOT EXISTS registration_attempts (
-			email TEXT PRIMARY KEY,
-			"count" INTEGER DEFAULT 0
-		);
+			CREATE TABLE IF NOT EXISTS email_send_throttles (
+				scope TEXT NOT NULL,
+				identifier TEXT NOT NULL,
+				last_sent_unix_ms BIGINT NOT NULL,
+				expires_at TIMESTAMPTZ NOT NULL,
+				PRIMARY KEY (scope, identifier)
+			);
+			CREATE TABLE IF NOT EXISTS registration_attempts (
+				email TEXT PRIMARY KEY,
+				"count" INTEGER DEFAULT 0,
+				expires_at TIMESTAMPTZ NOT NULL
+			);
 		CREATE TABLE IF NOT EXISTS webauthn_credentials (
 			id BYTEA PRIMARY KEY,
 			user_id BIGINT NOT NULL,
@@ -173,7 +179,12 @@ func schemaForDialect() string {
 			backup_eligible BOOLEAN NOT NULL DEFAULT FALSE,
 			backup_state BOOLEAN NOT NULL DEFAULT FALSE,
 			FOREIGN KEY (user_id) REFERENCES users(id)
-		);`
+		);
+		CREATE INDEX IF NOT EXISTS idx_verification_codes_expires_at ON verification_codes (expires_at);
+		CREATE INDEX IF NOT EXISTS idx_verification_codes_email_expires_at ON verification_codes (email, expires_at);
+		CREATE INDEX IF NOT EXISTS idx_email_send_throttles_expires_at ON email_send_throttles (expires_at);
+		CREATE INDEX IF NOT EXISTS idx_registration_attempts_expires_at ON registration_attempts (expires_at);
+		CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user_id ON webauthn_credentials (user_id);`
 	}
 
 	return `
@@ -196,11 +207,13 @@ func schemaForDialect() string {
 		scope TEXT NOT NULL,
 		identifier TEXT NOT NULL,
 		last_sent_unix_ms INTEGER NOT NULL,
+		expires_at DATETIME NOT NULL,
 		PRIMARY KEY (scope, identifier)
 	);
 	CREATE TABLE IF NOT EXISTS registration_attempts (
 		email TEXT PRIMARY KEY,
-		"count" INTEGER DEFAULT 0
+		"count" INTEGER DEFAULT 0,
+		expires_at DATETIME NOT NULL
 	);
 	CREATE TABLE IF NOT EXISTS webauthn_credentials (
 		id BLOB PRIMARY KEY,
@@ -213,18 +226,70 @@ func schemaForDialect() string {
 		backup_eligible BOOLEAN NOT NULL DEFAULT 0,
 		backup_state BOOLEAN NOT NULL DEFAULT 0,
 		FOREIGN KEY (user_id) REFERENCES users(id)
-	);`
+	);
+	CREATE INDEX IF NOT EXISTS idx_verification_codes_expires_at ON verification_codes (expires_at);
+	CREATE INDEX IF NOT EXISTS idx_verification_codes_email_expires_at ON verification_codes (email, expires_at);
+	CREATE INDEX IF NOT EXISTS idx_email_send_throttles_expires_at ON email_send_throttles (expires_at);
+	CREATE INDEX IF NOT EXISTS idx_registration_attempts_expires_at ON registration_attempts (expires_at);
+	CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user_id ON webauthn_credentials (user_id);`
 }
 
 func applyLegacyMigrations() {
 	if isPostgres() {
 		_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN IF NOT EXISTS backup_eligible BOOLEAN NOT NULL DEFAULT FALSE")
 		_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN IF NOT EXISTS backup_state BOOLEAN NOT NULL DEFAULT FALSE")
+		_, _ = Instance.Exec("ALTER TABLE email_send_throttles ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ")
+		_, _ = Instance.Exec("ALTER TABLE registration_attempts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ")
+		_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_verification_codes_expires_at ON verification_codes (expires_at)")
+		_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_verification_codes_email_expires_at ON verification_codes (email, expires_at)")
+		_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_email_send_throttles_expires_at ON email_send_throttles (expires_at)")
+		_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_registration_attempts_expires_at ON registration_attempts (expires_at)")
+		_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user_id ON webauthn_credentials (user_id)")
 		return
 	}
 
 	_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN backup_eligible BOOLEAN NOT NULL DEFAULT 0")
 	_, _ = Instance.Exec("ALTER TABLE webauthn_credentials ADD COLUMN backup_state BOOLEAN NOT NULL DEFAULT 0")
+	_, _ = Instance.Exec("ALTER TABLE email_send_throttles ADD COLUMN expires_at DATETIME")
+	_, _ = Instance.Exec("ALTER TABLE registration_attempts ADD COLUMN expires_at DATETIME")
+	_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_verification_codes_expires_at ON verification_codes (expires_at)")
+	_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_verification_codes_email_expires_at ON verification_codes (email, expires_at)")
+	_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_email_send_throttles_expires_at ON email_send_throttles (expires_at)")
+	_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_registration_attempts_expires_at ON registration_attempts (expires_at)")
+	_, _ = Instance.Exec("CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user_id ON webauthn_credentials (user_id)")
+}
+
+type connectionPoolConfig struct {
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
+}
+
+func poolConfigForDialect(dbType string) connectionPoolConfig {
+	if dbType == dbTypePostgres {
+		return connectionPoolConfig{
+			MaxOpenConns:    32,
+			MaxIdleConns:    16,
+			ConnMaxLifetime: 30 * time.Minute,
+			ConnMaxIdleTime: 5 * time.Minute,
+		}
+	}
+
+	return connectionPoolConfig{
+		MaxOpenConns:    1,
+		MaxIdleConns:    1,
+		ConnMaxLifetime: 0,
+		ConnMaxIdleTime: 0,
+	}
+}
+
+func configureConnectionPool(db *sql.DB, dbType string) {
+	cfg := poolConfigForDialect(dbType)
+	db.SetMaxOpenConns(cfg.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.MaxIdleConns)
+	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
 }
 
 func bindPlaceholders(query string) string {
@@ -372,8 +437,15 @@ func ReserveVerificationEmailSend(email, domain string, applyDomainLimit bool) (
 	)
 
 	now := time.Now()
-	sendThrottleMu.Lock()
-	defer sendThrottleMu.Unlock()
+	emailWindow := 60 * time.Second
+	domainWindow := 30 * time.Second
+	maybeCleanupExpiredTransientState(now)
+	lockKeys := []string{scopeEmail + ":" + email}
+	if applyDomainLimit {
+		lockKeys = append(lockKeys, scopeDomain+":"+domain)
+	}
+	unlock := requestThrottleLocks.LockKeys(lockKeys...)
+	defer unlock()
 
 	tx, err := Instance.Begin()
 	if err != nil {
@@ -381,7 +453,7 @@ func ReserveVerificationEmailSend(email, domain string, applyDomainLimit bool) (
 	}
 	defer tx.Rollback()
 
-	emailRemaining, err := getThrottleRemaining(tx, scopeEmail, email, now, 60*time.Second)
+	emailRemaining, err := getThrottleRemaining(tx, scopeEmail, email, now)
 	if err != nil {
 		return "", 0, err
 	}
@@ -390,7 +462,7 @@ func ReserveVerificationEmailSend(email, domain string, applyDomainLimit bool) (
 	}
 
 	if applyDomainLimit {
-		domainRemaining, err := getThrottleRemaining(tx, scopeDomain, domain, now, 30*time.Second)
+		domainRemaining, err := getThrottleRemaining(tx, scopeDomain, domain, now)
 		if err != nil {
 			return "", 0, err
 		}
@@ -399,11 +471,11 @@ func ReserveVerificationEmailSend(email, domain string, applyDomainLimit bool) (
 		}
 	}
 
-	if err := upsertThrottle(tx, scopeEmail, email, now.UnixMilli()); err != nil {
+	if err := upsertThrottle(tx, scopeEmail, email, now.UnixMilli(), now.Add(emailWindow)); err != nil {
 		return "", 0, err
 	}
 	if applyDomainLimit {
-		if err := upsertThrottle(tx, scopeDomain, domain, now.UnixMilli()); err != nil {
+		if err := upsertThrottle(tx, scopeDomain, domain, now.UnixMilli(), now.Add(domainWindow)); err != nil {
 			return "", 0, err
 		}
 	}
@@ -415,9 +487,9 @@ func ReserveVerificationEmailSend(email, domain string, applyDomainLimit bool) (
 	return "", 0, nil
 }
 
-func getThrottleRemaining(tx *sql.Tx, scope, identifier string, now time.Time, window time.Duration) (time.Duration, error) {
-	var lastSentUnixMs int64
-	err := txQueryRow(tx, "SELECT last_sent_unix_ms FROM email_send_throttles WHERE scope = ? AND identifier = ?", scope, identifier).Scan(&lastSentUnixMs)
+func getThrottleRemaining(tx *sql.Tx, scope, identifier string, now time.Time) (time.Duration, error) {
+	var expiresAt time.Time
+	err := txQueryRow(tx, "SELECT expires_at FROM email_send_throttles WHERE scope = ? AND identifier = ? AND expires_at > ?", scope, identifier, now).Scan(&expiresAt)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -425,22 +497,58 @@ func getThrottleRemaining(tx *sql.Tx, scope, identifier string, now time.Time, w
 		return 0, err
 	}
 
-	elapsed := now.Sub(time.UnixMilli(lastSentUnixMs))
-	if elapsed >= window {
+	retryAfter := expiresAt.Sub(now)
+	if retryAfter <= 0 {
 		return 0, nil
 	}
 
-	return window - elapsed, nil
+	return retryAfter, nil
 }
 
-func upsertThrottle(tx *sql.Tx, scope, identifier string, lastSentUnixMs int64) error {
+func upsertThrottle(tx *sql.Tx, scope, identifier string, lastSentUnixMs int64, expiresAt time.Time) error {
 	query := `
-		INSERT INTO email_send_throttles (scope, identifier, last_sent_unix_ms)
-		VALUES (?, ?, ?)
-		ON CONFLICT(scope, identifier) DO UPDATE SET last_sent_unix_ms = excluded.last_sent_unix_ms
+		INSERT INTO email_send_throttles (scope, identifier, last_sent_unix_ms, expires_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(scope, identifier) DO UPDATE SET last_sent_unix_ms = excluded.last_sent_unix_ms, expires_at = excluded.expires_at
 	`
-	_, err := txExec(tx, query, scope, identifier, lastSentUnixMs)
+	_, err := txExec(tx, query, scope, identifier, lastSentUnixMs, expiresAt)
 	return err
+}
+
+func ReserveIdentifierRequest(scope, identifier string, window time.Duration) (time.Duration, error) {
+	trimmedScope := strings.TrimSpace(scope)
+	trimmedIdentifier := strings.TrimSpace(identifier)
+	if trimmedScope == "" || trimmedIdentifier == "" {
+		return 0, nil
+	}
+
+	now := time.Now()
+	maybeCleanupExpiredTransientState(now)
+	unlock := requestThrottleLocks.LockKeys(trimmedScope + ":" + trimmedIdentifier)
+	defer unlock()
+
+	tx, err := Instance.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	remaining, err := getThrottleRemaining(tx, trimmedScope, trimmedIdentifier, now)
+	if err != nil {
+		return 0, err
+	}
+	if remaining > 0 {
+		return remaining, nil
+	}
+
+	if err := upsertThrottle(tx, trimmedScope, trimmedIdentifier, now.UnixMilli(), now.Add(window)); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return 0, nil
 }
 
 // ReserveIPRequest 在请求前检查并占用 IP 维度的频率窗口。
@@ -451,33 +559,7 @@ func ReserveIPRequest(scope, ip string, window time.Duration) (time.Duration, er
 		return 0, nil
 	}
 
-	now := time.Now()
-	sendThrottleMu.Lock()
-	defer sendThrottleMu.Unlock()
-
-	tx, err := Instance.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-
-	ipScope := "ip:" + trimmedScope
-	remaining, err := getThrottleRemaining(tx, ipScope, trimmedIP, now, window)
-	if err != nil {
-		return 0, err
-	}
-	if remaining > 0 {
-		return remaining, nil
-	}
-
-	if err := upsertThrottle(tx, ipScope, trimmedIP, now.UnixMilli()); err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-
-	return 0, nil
+	return ReserveIdentifierRequest("ip:"+trimmedScope, trimmedIP, window)
 }
 
 // VerifyCode 检查邮箱对应的任意一个未过期的验证码是否匹配。
@@ -576,8 +658,8 @@ func seedData() {
 // GetRegistrationCount 返回某个邮箱尝试注册的次数。
 func GetRegistrationCount(email string) (int, error) {
 	var count int
-	query := `SELECT "count" FROM registration_attempts WHERE email = ?`
-	err := dbQueryRow(query, email).Scan(&count)
+	query := `SELECT "count" FROM registration_attempts WHERE email = ? AND expires_at > ?`
+	err := dbQueryRow(query, email, time.Now()).Scan(&count)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -589,9 +671,55 @@ func GetRegistrationCount(email string) (int, error) {
 
 // IncrementRegistrationCount 增加某个邮箱的尝试注册次数。
 func IncrementRegistrationCount(email string) error {
-	query := `INSERT INTO registration_attempts (email, "count") VALUES (?, 1) ON CONFLICT(email) DO UPDATE SET "count" = registration_attempts."count" + 1`
-	_, err := dbExec(query, email)
+	trimmedEmail := strings.TrimSpace(email)
+	if trimmedEmail == "" {
+		return nil
+	}
+
+	now := time.Now()
+	maybeCleanupExpiredTransientState(now)
+	unlock := requestThrottleLocks.LockKeys("registration_attempt:" + trimmedEmail)
+	defer unlock()
+
+	if _, err := dbExec(`DELETE FROM registration_attempts WHERE email = ? AND (expires_at IS NULL OR expires_at <= ?)`, trimmedEmail, now); err != nil {
+		return err
+	}
+
+	expiresAt := now.Add(registrationAttemptTTL)
+	query := `INSERT INTO registration_attempts (email, "count", expires_at) VALUES (?, 1, ?) ON CONFLICT(email) DO UPDATE SET "count" = registration_attempts."count" + 1, expires_at = excluded.expires_at`
+	_, err := dbExec(query, trimmedEmail, expiresAt)
 	return err
+}
+
+func maybeCleanupExpiredTransientState(now time.Time) {
+	nowUnix := now.UnixNano()
+	deadline := nextTransientCleanup.Load()
+	if deadline != 0 && nowUnix < deadline {
+		return
+	}
+
+	nextDeadline := now.Add(transientCleanupInterval).UnixNano()
+	if deadline != 0 {
+		if !nextTransientCleanup.CompareAndSwap(deadline, nextDeadline) {
+			return
+		}
+	} else if !nextTransientCleanup.CompareAndSwap(0, nextDeadline) {
+		return
+	}
+
+	if err := cleanupExpiredTransientState(now); err != nil {
+		log.Printf("cleanup transient state failed: %v", err)
+	}
+}
+
+func cleanupExpiredTransientState(now time.Time) error {
+	if _, err := dbExec("DELETE FROM email_send_throttles WHERE expires_at IS NULL OR expires_at <= ?", now); err != nil {
+		return err
+	}
+	if _, err := dbExec("DELETE FROM registration_attempts WHERE expires_at IS NULL OR expires_at <= ?", now); err != nil {
+		return err
+	}
+	return nil
 }
 
 // CheckConflict 检查用户信息是否与现有记录冲突。

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"math"
-	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -91,25 +90,6 @@ func setCorsHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 }
 
-func getClientIP(r *http.Request) string {
-	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
-		if idx := strings.IndexByte(xff, ','); idx >= 0 {
-			return strings.TrimSpace(xff[:idx])
-		}
-		return xff
-	}
-
-	if xrip := strings.TrimSpace(r.Header.Get("X-Real-IP")); xrip != "" {
-		return xrip
-	}
-
-	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
-	if err == nil && host != "" {
-		return host
-	}
-	return strings.TrimSpace(r.RemoteAddr)
-}
-
 func retryAfterSeconds(retryAfter time.Duration) int {
 	seconds := int(math.Ceil(retryAfter.Seconds()))
 	if seconds < 1 {
@@ -139,6 +119,34 @@ func protoReadError(err error, badRequestMsg string) (int32, string) {
 		return http.StatusRequestEntityTooLarge, "请求体过大"
 	}
 	return http.StatusBadRequest, badRequestMsg
+}
+
+func validateMaxBytes(value string, limit int, msg string) (int32, string, bool) {
+	if len(value) <= limit {
+		return 0, "", true
+	}
+	return http.StatusRequestEntityTooLarge, msg, false
+}
+
+func allowedOrigin() string {
+	origin := os.Getenv("ALLOWED_ORIGIN")
+	if origin == "" {
+		origin = "http://localhost:4321"
+	}
+	return origin
+}
+
+func requestOriginAllowed(r *http.Request) bool {
+	allowed := allowedOrigin()
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		return origin == allowed
+	}
+
+	referer := strings.TrimSpace(r.Header.Get("Referer"))
+	if referer == "" {
+		return false
+	}
+	return strings.HasPrefix(referer, allowed+"/") || referer == allowed
 }
 
 // sendProto 序列化 Protobuf 消息并发送二进制响应。

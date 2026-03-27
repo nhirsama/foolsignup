@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -12,10 +11,7 @@ type sessionState struct {
 	ExpiresAt time.Time
 }
 
-var (
-	sessionAuthStore = make(map[string]sessionState)
-	sessionAuthMu    sync.RWMutex
-)
+var sessionAuthStore = newExpiringStore[sessionState](sessionAuthStoreMaxEntries)
 
 func issueSessionToken(userID int, username string, ttl time.Duration) (string, error) {
 	token, err := generateSecureToken(32)
@@ -23,13 +19,14 @@ func issueSessionToken(userID int, username string, ttl time.Duration) (string, 
 		return "", err
 	}
 
-	sessionAuthMu.Lock()
-	sessionAuthStore[token] = sessionState{
+	state := sessionState{
 		UserID:    userID,
 		Username:  username,
 		ExpiresAt: time.Now().Add(ttl),
 	}
-	sessionAuthMu.Unlock()
+	if err := sessionAuthStore.Set(token, state, state.ExpiresAt); err != nil {
+		return "", err
+	}
 
 	return token, nil
 }
@@ -40,13 +37,8 @@ func getSessionFromRequest(r *http.Request) (int, string, bool) {
 		return 0, "", false
 	}
 
-	sessionAuthMu.RLock()
-	state, ok := sessionAuthStore[cookie.Value]
-	sessionAuthMu.RUnlock()
-	if !ok || time.Now().After(state.ExpiresAt) {
-		if ok {
-			clearSessionToken(cookie.Value)
-		}
+	state, ok := sessionAuthStore.Get(cookie.Value)
+	if !ok {
 		return 0, "", false
 	}
 
@@ -57,7 +49,5 @@ func clearSessionToken(token string) {
 	if token == "" {
 		return
 	}
-	sessionAuthMu.Lock()
-	delete(sessionAuthStore, token)
-	sessionAuthMu.Unlock()
+	sessionAuthStore.Delete(token)
 }

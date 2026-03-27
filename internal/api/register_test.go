@@ -67,3 +67,18 @@ func TestIsValidRegistrationPoWRejectsMalformedProof(t *testing.T) {
 	}
 }
 
+func TestIsValidRegistrationPoWDoesNotConsumeChallenge(t *testing.T) {
+	testDB := newRegisterVerificationDB(t)
+
+	if _, err := testDB.Exec("INSERT INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?)", "user@example.com", "aaaaaaaaaaaaaaaa", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("insert challenge failed: %v", err)
+	}
+
+	proof := "aaaaaaaaaaaaaaaa113608"
+	if !isValidRegistrationPoW("user@example.com", proof) {
+		t.Fatal("expected first proof validation to pass")
+	}
+	if !isValidRegistrationPoW("user@example.com", proof) {
+		t.Fatal("expected proof to remain reusable for the same challenge")
+	}
+}

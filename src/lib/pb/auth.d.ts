@@ -545,6 +545,9 @@ export namespace foolsignup {
 
                 /** SendEmailCodeRequest captchaValue */
                 captchaValue?: (string|null);
+
+                /** SendEmailCodeRequest turnstileToken */
+                turnstileToken?: (string|null);
             }
 
             /** Represents a SendEmailCodeRequest. */
@@ -564,6 +567,9 @@ export namespace foolsignup {
 
                 /** SendEmailCodeRequest captchaValue. */
                 public captchaValue: string;
+
+                /** SendEmailCodeRequest turnstileToken. */
+                public turnstileToken: string;
 
                 /**
                  * Creates a new SendEmailCodeRequest instance using the specified properties.

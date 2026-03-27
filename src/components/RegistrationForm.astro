@@ -191,16 +191,22 @@
             <button id="close-captcha-x" class="close-x">&times;</button>
         </div>
         <div class="captcha-body">
-            <div class="captcha-header">
-                <div class="captcha-image-box">
-                    <img id="captcha-img" src="" alt="CAPTCHA" data-i18n-alt="captcha.alt" />
-                    <button id="refresh-captcha" class="refresh-btn" title="Actualizar captcha" data-i18n-title="captcha.refreshTitle">⟳</button>
+                <div class="captcha-header">
+                    <div class="captcha-image-box">
+                        <img id="captcha-img" src="" alt="CAPTCHA" data-i18n-alt="captcha.alt" />
+                        <button id="refresh-captcha" class="refresh-btn" title="Actualizar captcha" data-i18n-title="captcha.refreshTitle">⟳</button>
+                    </div>
+                    <div class="captcha-guide" data-i18n="captcha.guide">Usa el deslizador y pulsa el numero que coincide con la imagen.</div>
                 </div>
-                <div class="captcha-guide" data-i18n="captcha.guide">Usa el deslizador y pulsa el numero que coincide con la imagen.</div>
-            </div>
-            <div class="captcha-main-area">
-                <div id="captcha-grid" class="captcha-grid"></div>
-                <div class="captcha-slider-box">
+                <div id="captcha-turnstile-field" class="captcha-turnstile hidden">
+                    <label for="captcha-turnstile-widget" class="captcha-turnstile-label" data-i18n="label.turnstile">Verificacion humana</label>
+                    <div class="turnstile-shell">
+                        <div id="captcha-turnstile-widget" class="turnstile-widget"></div>
+                    </div>
+                </div>
+                <div class="captcha-main-area">
+                    <div id="captcha-grid" class="captcha-grid"></div>
+                    <div class="captcha-slider-box">
                     <button type="button" class="slider-adjust-btn" id="slider-up">▲</button>
                     <input type="range" id="captcha-nav-slider" min="0" max="249995" value="0" step="1" />
                     <button type="button" class="slider-adjust-btn" id="slider-down">▼</button>
@@ -772,6 +778,31 @@
     .input-with-action .inline-button {
         width: 112px;
         min-width: 112px;
+    }
+
+    .turnstile-shell {
+        min-height: 74px;
+        padding: 10px;
+        border-radius: 20px;
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        background: rgba(247, 250, 252, 0.9);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    }
+
+    .turnstile-widget {
+        min-height: 65px;
+    }
+
+    .captcha-turnstile {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 18px;
+    }
+
+    .captcha-turnstile-label {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: var(--text-subtle);
     }
 
     .stepper-input {

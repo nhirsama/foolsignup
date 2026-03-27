@@ -1061,6 +1061,7 @@ export const foolsignup = $root.foolsignup = (() => {
                  * @property {string|null} [email] SendEmailCodeRequest email
                  * @property {string|null} [captchaKey] SendEmailCodeRequest captchaKey
                  * @property {string|null} [captchaValue] SendEmailCodeRequest captchaValue
+                 * @property {string|null} [turnstileToken] SendEmailCodeRequest turnstileToken
                  */
 
                 /**
@@ -1103,6 +1104,14 @@ export const foolsignup = $root.foolsignup = (() => {
                 SendEmailCodeRequest.prototype.captchaValue = "";
 
                 /**
+                 * SendEmailCodeRequest turnstileToken.
+                 * @member {string} turnstileToken
+                 * @memberof foolsignup.auth.v1.SendEmailCodeRequest
+                 * @instance
+                 */
+                SendEmailCodeRequest.prototype.turnstileToken = "";
+
+                /**
                  * Creates a new SendEmailCodeRequest instance using the specified properties.
                  * @function create
                  * @memberof foolsignup.auth.v1.SendEmailCodeRequest
@@ -1132,6 +1141,8 @@ export const foolsignup = $root.foolsignup = (() => {
                         writer.uint32(/* id 2, wireType 2 =*/18).string(message.captchaKey);
                     if (message.captchaValue != null && Object.hasOwnProperty.call(message, "captchaValue"))
                         writer.uint32(/* id 3, wireType 2 =*/26).string(message.captchaValue);
+                    if (message.turnstileToken != null && Object.hasOwnProperty.call(message, "turnstileToken"))
+                        writer.uint32(/* id 4, wireType 2 =*/34).string(message.turnstileToken);
                     return writer;
                 };
 
@@ -1180,6 +1191,10 @@ export const foolsignup = $root.foolsignup = (() => {
                                 message.captchaValue = reader.string();
                                 break;
                             }
+                        case 4: {
+                                message.turnstileToken = reader.string();
+                                break;
+                            }
                         default:
                             reader.skipType(tag & 7);
                             break;
@@ -1224,6 +1239,9 @@ export const foolsignup = $root.foolsignup = (() => {
                     if (message.captchaValue != null && message.hasOwnProperty("captchaValue"))
                         if (!$util.isString(message.captchaValue))
                             return "captchaValue: string expected";
+                    if (message.turnstileToken != null && message.hasOwnProperty("turnstileToken"))
+                        if (!$util.isString(message.turnstileToken))
+                            return "turnstileToken: string expected";
                     return null;
                 };
 
@@ -1245,6 +1263,8 @@ export const foolsignup = $root.foolsignup = (() => {
                         message.captchaKey = String(object.captchaKey);
                     if (object.captchaValue != null)
                         message.captchaValue = String(object.captchaValue);
+                    if (object.turnstileToken != null)
+                        message.turnstileToken = String(object.turnstileToken);
                     return message;
                 };
 
@@ -1265,6 +1285,7 @@ export const foolsignup = $root.foolsignup = (() => {
                         object.email = "";
                         object.captchaKey = "";
                         object.captchaValue = "";
+                        object.turnstileToken = "";
                     }
                     if (message.email != null && message.hasOwnProperty("email"))
                         object.email = message.email;
@@ -1272,6 +1293,8 @@ export const foolsignup = $root.foolsignup = (() => {
                         object.captchaKey = message.captchaKey;
                     if (message.captchaValue != null && message.hasOwnProperty("captchaValue"))
                         object.captchaValue = message.captchaValue;
+                    if (message.turnstileToken != null && message.hasOwnProperty("turnstileToken"))
+                        object.turnstileToken = message.turnstileToken;
                     return object;
                 };
 

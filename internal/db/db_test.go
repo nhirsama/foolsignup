@@ -19,7 +19,13 @@ func newThrottleTestDB(t *testing.T) *sql.DB {
 		scope TEXT NOT NULL,
 		identifier TEXT NOT NULL,
 		last_sent_unix_ms INTEGER NOT NULL,
+		expires_at DATETIME,
 		PRIMARY KEY (scope, identifier)
+	);
+	CREATE TABLE registration_attempts (
+		email TEXT PRIMARY KEY,
+		"count" INTEGER DEFAULT 0,
+		expires_at DATETIME
 	);`
 	if _, err := testDB.Exec(schema); err != nil {
 		t.Fatalf("create schema: %v", err)
@@ -29,9 +35,11 @@ func newThrottleTestDB(t *testing.T) *sql.DB {
 	previousDialect := dialect
 	Instance = testDB
 	dialect = dbTypeSQLite
+	nextTransientCleanup.Store(0)
 	t.Cleanup(func() {
 		Instance = previous
 		dialect = previousDialect
+		nextTransientCleanup.Store(0)
 		_ = testDB.Close()
 	})
 
@@ -47,9 +55,17 @@ func newRegistrationAttemptsTestDB(t *testing.T) *sql.DB {
 	}
 
 	schema := `
+	CREATE TABLE email_send_throttles (
+		scope TEXT NOT NULL,
+		identifier TEXT NOT NULL,
+		last_sent_unix_ms INTEGER NOT NULL,
+		expires_at DATETIME,
+		PRIMARY KEY (scope, identifier)
+	);
 	CREATE TABLE registration_attempts (
 		email TEXT PRIMARY KEY,
-		"count" INTEGER DEFAULT 0
+		"count" INTEGER DEFAULT 0,
+		expires_at DATETIME
 	);`
 	if _, err := testDB.Exec(schema); err != nil {
 		t.Fatalf("create schema: %v", err)
@@ -59,9 +75,11 @@ func newRegistrationAttemptsTestDB(t *testing.T) *sql.DB {
 	previousDialect := dialect
 	Instance = testDB
 	dialect = dbTypeSQLite
+	nextTransientCleanup.Store(0)
 	t.Cleanup(func() {
 		Instance = previous
 		dialect = previousDialect
+		nextTransientCleanup.Store(0)
 		_ = testDB.Close()
 	})
 
@@ -193,6 +211,34 @@ func TestReserveIPRequest(t *testing.T) {
 	}
 }
 
+func TestReserveIdentifierRequest(t *testing.T) {
+	newThrottleTestDB(t)
+
+	retryAfter, err := ReserveIdentifierRequest("login_user", "alice", time.Second)
+	if err != nil {
+		t.Fatalf("first reserve failed: %v", err)
+	}
+	if retryAfter != 0 {
+		t.Fatalf("expected first reserve to pass, got retry_after=%v", retryAfter)
+	}
+
+	retryAfter, err = ReserveIdentifierRequest("login_user", "alice", time.Second)
+	if err != nil {
+		t.Fatalf("second reserve failed: %v", err)
+	}
+	if retryAfter <= 0 || retryAfter > time.Second {
+		t.Fatalf("expected second reserve to be limited, got retry_after=%v", retryAfter)
+	}
+
+	retryAfter, err = ReserveIdentifierRequest("login_user", "bob", time.Second)
+	if err != nil {
+		t.Fatalf("third reserve failed: %v", err)
+	}
+	if retryAfter != 0 {
+		t.Fatalf("expected different identifier to pass, got retry_after=%v", retryAfter)
+	}
+}
+
 func TestIncrementRegistrationCount(t *testing.T) {
 	newRegistrationAttemptsTestDB(t)
 
@@ -226,6 +272,80 @@ func TestIncrementRegistrationCount(t *testing.T) {
 	}
 	if got != 2 {
 		t.Fatalf("expected count after second increment to be 2, got %d", got)
+	}
+}
+
+func TestIncrementRegistrationCountResetsExpiredRow(t *testing.T) {
+	testDB := newRegistrationAttemptsTestDB(t)
+	now := time.Now()
+
+	if _, err := testDB.Exec(`INSERT INTO registration_attempts (email, "count", expires_at) VALUES (?, ?, ?)`, "user@example.com", 9, now.Add(-time.Minute)); err != nil {
+		t.Fatalf("insert expired row failed: %v", err)
+	}
+
+	if err := IncrementRegistrationCount("user@example.com"); err != nil {
+		t.Fatalf("increment failed: %v", err)
+	}
+
+	got, err := GetRegistrationCount("user@example.com")
+	if err != nil {
+		t.Fatalf("get count failed: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("expected expired row to reset to 1, got %d", got)
+	}
+}
+
+func TestCleanupExpiredTransientState(t *testing.T) {
+	testDB := newThrottleTestDB(t)
+	now := time.Now()
+
+	if _, err := testDB.Exec(`INSERT INTO email_send_throttles (scope, identifier, last_sent_unix_ms, expires_at) VALUES (?, ?, ?, ?)`, "email", "expired@example.com", now.Add(-time.Hour).UnixMilli(), now.Add(-time.Minute)); err != nil {
+		t.Fatalf("insert expired throttle failed: %v", err)
+	}
+	if _, err := testDB.Exec(`INSERT INTO email_send_throttles (scope, identifier, last_sent_unix_ms, expires_at) VALUES (?, ?, ?, ?)`, "email", "active@example.com", now.UnixMilli(), now.Add(time.Minute)); err != nil {
+		t.Fatalf("insert active throttle failed: %v", err)
+	}
+	if _, err := testDB.Exec(`INSERT INTO registration_attempts (email, "count", expires_at) VALUES (?, ?, ?)`, "expired@example.com", 1, now.Add(-time.Minute)); err != nil {
+		t.Fatalf("insert expired attempt failed: %v", err)
+	}
+	if _, err := testDB.Exec(`INSERT INTO registration_attempts (email, "count", expires_at) VALUES (?, ?, ?)`, "active@example.com", 1, now.Add(time.Minute)); err != nil {
+		t.Fatalf("insert active attempt failed: %v", err)
+	}
+
+	if err := cleanupExpiredTransientState(now); err != nil {
+		t.Fatalf("cleanup failed: %v", err)
+	}
+
+	var throttleCount int
+	if err := testDB.QueryRow(`SELECT COUNT(*) FROM email_send_throttles`).Scan(&throttleCount); err != nil {
+		t.Fatalf("count throttles failed: %v", err)
+	}
+	if throttleCount != 1 {
+		t.Fatalf("expected 1 throttle row after cleanup, got %d", throttleCount)
+	}
+
+	var attemptCount int
+	if err := testDB.QueryRow(`SELECT COUNT(*) FROM registration_attempts`).Scan(&attemptCount); err != nil {
+		t.Fatalf("count registration attempts failed: %v", err)
+	}
+	if attemptCount != 1 {
+		t.Fatalf("expected 1 registration attempt row after cleanup, got %d", attemptCount)
+	}
+}
+
+func TestPoolConfigForDialect(t *testing.T) {
+	sqliteCfg := poolConfigForDialect(dbTypeSQLite)
+	if sqliteCfg.MaxOpenConns != 1 || sqliteCfg.MaxIdleConns != 1 {
+		t.Fatalf("unexpected sqlite pool config: %+v", sqliteCfg)
+	}
+
+	postgresCfg := poolConfigForDialect(dbTypePostgres)
+	if postgresCfg.MaxOpenConns != 32 || postgresCfg.MaxIdleConns != 16 {
+		t.Fatalf("unexpected postgres pool config: %+v", postgresCfg)
+	}
+	if postgresCfg.ConnMaxLifetime <= 0 || postgresCfg.ConnMaxIdleTime <= 0 {
+		t.Fatalf("expected postgres pool timeouts to be set, got %+v", postgresCfg)
 	}
 }
 

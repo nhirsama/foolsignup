@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -24,8 +25,7 @@ var (
 	webAuthn *webauthn.WebAuthn
 	waOnce   sync.Once
 	// 存储正在进行的 WebAuthn 会话，按临时 token 绑定，避免依赖客户端可控 Trace ID
-	sessionStore = make(map[string]*webAuthnSessionState)
-	sessionMu    sync.RWMutex
+	sessionStore = newExpiringStore[webAuthnSessionState](webAuthnStoreMaxEntries)
 )
 
 type webAuthnSessionState struct {
@@ -110,15 +110,20 @@ func HandleGetWebAuthnRegistrationOptions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	sessionMu.Lock()
-	state, exists := sessionStore[tempToken]
-	if !exists || state == nil || time.Now().After(state.ExpiresAt) {
-		state = &webAuthnSessionState{}
-	}
+	state, _ := sessionStore.Get(tempToken)
 	state.Registration = session
 	state.ExpiresAt = time.Now().Add(5 * time.Minute)
-	sessionStore[tempToken] = state
-	sessionMu.Unlock()
+	if err := sessionStore.Set(tempToken, state, state.ExpiresAt); err != nil {
+		if errors.Is(err, errStoreCapacityExceeded) {
+			res.Code = http.StatusServiceUnavailable
+			res.Msg = "验证请求过多，请稍后重试"
+		} else {
+			res.Code = http.StatusInternalServerError
+			res.Msg = "无法保存验证会话"
+		}
+		sendProto(w, res)
+		return
+	}
 
 	optionsJSON, _ := json.Marshal(options)
 	res.Code = http.StatusOK
@@ -139,6 +144,11 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 		sendProto(w, res)
 		return
 	}
+	if code, msg, ok := validateMaxBytes(req.CredentialJson, maxWebAuthnCredentialBytes, "凭证响应过大"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
 
 	tempToken, userID, ok := getTempAuthTokenAndUserID(r)
 	if !ok {
@@ -148,10 +158,8 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionMu.RLock()
-	state, exists := sessionStore[tempToken]
-	sessionMu.RUnlock()
-	if !exists || state == nil || state.Registration == nil || time.Now().After(state.ExpiresAt) {
+	state, ok := sessionStore.Get(tempToken)
+	if !ok || state.Registration == nil {
 		res.Code = http.StatusBadRequest
 		res.Msg = "验证超时，请重试"
 		sendProto(w, res)
@@ -194,14 +202,12 @@ func HandleVerifyWebAuthnRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionMu.Lock()
-	if current, ok := sessionStore[tempToken]; ok {
-		current.Registration = nil
-		if current.Login == nil {
-			delete(sessionStore, tempToken)
-		}
+	state.Registration = nil
+	if state.Login == nil {
+		sessionStore.Delete(tempToken)
+	} else {
+		_ = sessionStore.Set(tempToken, state, state.ExpiresAt)
 	}
-	sessionMu.Unlock()
 
 	if err := setSessionCookie(w, userID, username, tempToken); err != nil {
 		res.Code = http.StatusInternalServerError
@@ -223,6 +229,11 @@ func HandleGetWebAuthnLoginOptions(w http.ResponseWriter, r *http.Request) {
 	var req authpb.GetWebAuthnLoginOptionsRequest
 	if err := readProto(r, &req); err != nil {
 		res.Code, res.Msg = protoReadError(err, "格式错误")
+		sendProto(w, res)
+		return
+	}
+	if code, msg, ok := validateMaxBytes(req.TempToken, maxTempTokenBytes, "临时凭证过长"); !ok {
+		res.Code, res.Msg = code, msg
 		sendProto(w, res)
 		return
 	}
@@ -265,15 +276,20 @@ func HandleGetWebAuthnLoginOptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionMu.Lock()
-	state, exists := sessionStore[tempToken]
-	if !exists || state == nil || time.Now().After(state.ExpiresAt) {
-		state = &webAuthnSessionState{}
-	}
+	state, _ := sessionStore.Get(tempToken)
 	state.Login = session
 	state.ExpiresAt = time.Now().Add(5 * time.Minute)
-	sessionStore[tempToken] = state
-	sessionMu.Unlock()
+	if err := sessionStore.Set(tempToken, state, state.ExpiresAt); err != nil {
+		if errors.Is(err, errStoreCapacityExceeded) {
+			res.Code = http.StatusServiceUnavailable
+			res.Msg = "验证请求过多，请稍后重试"
+		} else {
+			res.Code = http.StatusInternalServerError
+			res.Msg = "无法保存验证会话"
+		}
+		sendProto(w, res)
+		return
+	}
 
 	optionsJSON, _ := json.Marshal(options)
 	res.Code = http.StatusOK
@@ -294,6 +310,16 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 		sendProto(w, res)
 		return
 	}
+	if code, msg, ok := validateMaxBytes(req.TempToken, maxTempTokenBytes, "临时凭证过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
+	if code, msg, ok := validateMaxBytes(req.CredentialJson, maxWebAuthnCredentialBytes, "凭证响应过大"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
 
 	tempToken, userID, ok := getTempAuthTokenAndUserID(r)
 	if !ok {
@@ -309,10 +335,8 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionMu.RLock()
-	state, exists := sessionStore[tempToken]
-	sessionMu.RUnlock()
-	if !exists || state == nil || state.Login == nil || time.Now().After(state.ExpiresAt) {
+	state, ok := sessionStore.Get(tempToken)
+	if !ok || state.Login == nil {
 		res.Code = http.StatusBadRequest
 		res.Msg = "验证超时"
 		sendProto(w, res)
@@ -359,14 +383,12 @@ func HandleVerifyWebAuthnLogin(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[WebAuthn] 更新签名计数失败: user_id=%d err=%v", userID, err)
 	}
 
-	sessionMu.Lock()
-	if current, ok := sessionStore[tempToken]; ok {
-		current.Login = nil
-		if current.Registration == nil {
-			delete(sessionStore, tempToken)
-		}
+	state.Login = nil
+	if state.Registration == nil {
+		sessionStore.Delete(tempToken)
+	} else {
+		_ = sessionStore.Set(tempToken, state, state.ExpiresAt)
 	}
-	sessionMu.Unlock()
 
 	if err := setSessionCookie(w, userID, username, tempToken); err != nil {
 		res.Code = http.StatusInternalServerError

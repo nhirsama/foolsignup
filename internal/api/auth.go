@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -28,7 +29,24 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	retryAfter, err := db.ReserveIPRequest("login", getClientIP(r), 1*time.Second)
+	if code, msg, ok := validateMaxBytes(req.Username, maxUsernameBytes, "用户名过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
+	if code, msg, ok := validateMaxBytes(req.Password, maxPasswordBytes, "密码过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
+	if strings.TrimSpace(req.Username) == "" || req.Password == "" {
+		res.Code = http.StatusBadRequest
+		res.Msg = "用户名和密码不能为空"
+		sendProto(w, res)
+		return
+	}
+
+	retryAfter, err := db.ReserveIPRequest("login", getClientIP(r), loginRateLimitWindow)
 	if err != nil {
 		res.Code = http.StatusInternalServerError
 		res.Msg = "系统繁忙"
@@ -42,6 +60,14 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !tryAcquireSlot(loginVerifySlots) {
+		res.Code = http.StatusServiceUnavailable
+		res.Msg = "登录服务繁忙，请稍后重试"
+		sendProto(w, res)
+		return
+	}
+	defer releaseSlot(loginVerifySlots)
+
 	id, ok := db.GetUserByCredentials(req.Username, req.Password)
 	if !ok {
 		res.Code = http.StatusUnauthorized
@@ -54,8 +80,13 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 	has2fa := db.Has2FA(id)
 	tempToken, err := issueTempAuthToken(id, 5*time.Minute)
 	if err != nil {
-		res.Code = http.StatusInternalServerError
-		res.Msg = "临时会话创建失败"
+		if errors.Is(err, errStoreCapacityExceeded) {
+			res.Code = http.StatusServiceUnavailable
+			res.Msg = "登录请求过多，请稍后重试"
+		} else {
+			res.Code = http.StatusInternalServerError
+			res.Msg = "临时会话创建失败"
+		}
 		sendProto(w, res)
 		return
 	}
@@ -118,16 +149,48 @@ func HandleMe(w http.ResponseWriter, r *http.Request) {
 
 // HandleLogout 清除会话 Cookie。
 func HandleLogout(w http.ResponseWriter, r *http.Request) {
-	setCorsHeaders(w)
+	if !setupCORSAndMethod(w, r, http.MethodPost) {
+		return
+	}
+	if !requestOriginAllowed(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if cookie, err := r.Cookie("uip_session"); err == nil {
 		clearSessionToken(cookie.Value)
 	}
-	http.SetCookie(w, &http.Cookie{
+	if cookie, err := r.Cookie("uip_temp_auth"); err == nil {
+		clearTempAuthToken(cookie.Value)
+	}
+	clearAuthCookies(w)
+	w.WriteHeader(http.StatusOK)
+}
+
+func clearAuthCookies(w http.ResponseWriter) {
+	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+	isSecure := strings.HasPrefix(allowedOrigin, "https://")
+
+	sessionCookie := &http.Cookie{
 		Name:     "uip_session",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		MaxAge:   -1,
-	})
-	w.WriteHeader(http.StatusOK)
+	}
+	tempCookie := &http.Cookie{
+		Name:     "uip_temp_auth",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	}
+	if isSecure {
+		sessionCookie.Secure = true
+		sessionCookie.SameSite = http.SameSiteNoneMode
+		tempCookie.Secure = true
+		tempCookie.SameSite = http.SameSiteNoneMode
+	}
+
+	http.SetCookie(w, sessionCookie)
+	http.SetCookie(w, tempCookie)
 }

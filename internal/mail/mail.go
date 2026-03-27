@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 )
 
 // EmailSender 定义了发送邮件的通用接口。
@@ -20,6 +21,7 @@ type APISender struct {
 	Endpoint string
 	APIKey   string
 	From     string
+	Client   *http.Client
 }
 
 // emailRequest 内部使用的 API 请求结构。
@@ -52,7 +54,12 @@ func (s *APISender) Send(to, subject, html string) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Go-http-client/1.1")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := s.Client
+	if client == nil {
+		client = defaultMailHTTPClient
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("mail: 网络请求失败: %w", err)
 	}
@@ -64,6 +71,19 @@ func (s *APISender) Send(to, subject, html string) error {
 	}
 
 	return nil
+}
+
+var defaultMailHTTPClient = &http.Client{
+	Timeout: 10 * time.Second,
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          32,
+		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	},
 }
 
 // NewDefaultSender 从环境变量初始化默认发送器。

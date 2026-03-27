@@ -47,14 +47,18 @@ cd foolsignup
 | `DB_SQLITE_PATH`    | SQLite 文件路径（仅 `DB_TYPE=sqlite` 时生效）                      | `/app/data/data.db`                                                                         |
 | `DB_DSN`            | PostgreSQL DSN（仅 `DB_TYPE=postgres` 时生效，需自行部署 PostgreSQL） | `host=127.0.0.1 port=5432 user=postgres password=postgres dbname=foolsignup sslmode=disable` |
 | `ALLOWED_ORIGIN`    | 允许跨域的域名（前端访问地址）                                          | `https://signup.example.com`                                                                |
+| `TRUSTED_PROXY_CIDRS` | 额外可信反向代理网段（逗号分隔）。只有来自可信代理的 `X-Forwarded-For` / `X-Real-IP` 才会被用于限流判定 | `203.0.113.0/24,2001:db8:100::/64` |
 | `MAIL_API_ENDPOINT` | 邮件服务 API 地址 (基于 HTTP POST)                               | `https://api.cyberpersons.com/email/send`                                                   |
 | `MAIL_API_KEY`      | 邮件服务 API Key                                             | `your_secret_key`                                                                           |
 | `MAIL_FROM`         | 发件人邮箱                                                    | `noreply@example.com`                                                                       |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile 服务端密钥。配置后，发送 PoW 验证码前必须通过 Turnstile 校验 | `0x4AAAA...` |
 
 数据库切换示例：
 
 - 使用 SQLite（默认）：`DB_TYPE=sqlite`
 - 使用 PostgreSQL：`DB_TYPE=postgres`，并设置 `DB_DSN`（PostgreSQL 需自行安装/部署）
+- 若部署在反向代理之后且代理地址不属于回环/私有网段，请设置 `TRUSTED_PROXY_CIDRS`，否则应用会直接使用连接对端地址进行限流。
+- 本地环回地址、RFC1918 私有地址和链路本地地址默认已经被视为可信代理，不需要再额外写进 `TRUSTED_PROXY_CIDRS`。
 
 ### 4. 启动服务
 
@@ -91,3 +95,4 @@ pnpm build
 ### 3. 配置
 
 请配置环境变量 `PUBLIC_API_URL` 并指向后端 URL。
+如需启用发送 PoW 验证码前的 Cloudflare Turnstile，请额外配置 `PUBLIC_TURNSTILE_SITE_KEY`，并在后端同时配置 `TURNSTILE_SECRET_KEY`。

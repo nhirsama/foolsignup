@@ -126,12 +126,13 @@ func (x *GetCaptchaResponse) GetData() *GetCaptchaResponse_Data {
 }
 
 type SendEmailCodeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
-	CaptchaKey    string                 `protobuf:"bytes,2,opt,name=captcha_key,json=captchaKey,proto3" json:"captcha_key,omitempty"`
-	CaptchaValue  string                 `protobuf:"bytes,3,opt,name=captcha_value,json=captchaValue,proto3" json:"captcha_value,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Email          string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	CaptchaKey     string                 `protobuf:"bytes,2,opt,name=captcha_key,json=captchaKey,proto3" json:"captcha_key,omitempty"`
+	CaptchaValue   string                 `protobuf:"bytes,3,opt,name=captcha_value,json=captchaValue,proto3" json:"captcha_value,omitempty"`
+	TurnstileToken string                 `protobuf:"bytes,4,opt,name=turnstile_token,json=turnstileToken,proto3" json:"turnstile_token,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SendEmailCodeRequest) Reset() {
@@ -181,6 +182,13 @@ func (x *SendEmailCodeRequest) GetCaptchaKey() string {
 func (x *SendEmailCodeRequest) GetCaptchaValue() string {
 	if x != nil {
 		return x.CaptchaValue
+	}
+	return ""
+}
+
+func (x *SendEmailCodeRequest) GetTurnstileToken() string {
+	if x != nil {
+		return x.TurnstileToken
 	}
 	return ""
 }
@@ -1215,22 +1223,23 @@ const file_proto_auth_v1_auth_proto_rawDesc = "" +
 	"\x04Data\x12\x1f\n" +
 	"\vcaptcha_key\x18\x01 \x01(\tR\n" +
 	"captchaKey\x12\x14\n" +
-	"\x05image\x18\x02 \x01(\tR\x05image\"r\n" +
+	"\x05image\x18\x02 \x01(\tR\x05image\"\x9b\x01\n" +
 	"\x14SendEmailCodeRequest\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\x12\x1f\n" +
 	"\vcaptcha_key\x18\x02 \x01(\tR\n" +
 	"captchaKey\x12#\n" +
-	"\rcaptcha_value\x18\x03 \x01(\tR\fcaptchaValue\"X\n" +
+	"\rcaptcha_value\x18\x03 \x01(\tR\fcaptchaValue\x12'\n" +
+	"\x0fturnstile_token\x18\x04 \x01(\tR\x0eturnstileToken\"X\n" +
 	"\x15SendEmailCodeResponse\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\x05R\x04code\x12\x10\n" +
 	"\x03msg\x18\x02 \x01(\tR\x03msg\x12\x19\n" +
-	"\btrace_id\x18\x03 \x01(\tR\atraceId\"\x85\x01\n" +
+	"\btrace_id\x18\x03 \x01(\tR\atraceId\"\x9c\x01\n" +
 	"\x0fRegisterRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x10\n" +
 	"\x03age\x18\x03 \x01(\x05R\x03age\x12\x1a\n" +
 	"\bpassword\x18\x04 \x01(\tR\bpassword\x12\x12\n" +
-	"\x04code\x18\x05 \x01(\tR\x04code\"S\n" +
+	"\x04code\x18\x05 \x01(\tR\x04codeJ\x04\b\x06\x10\aR\x0fturnstile_token\"S\n" +
 	"\x10RegisterResponse\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\x05R\x04code\x12\x10\n" +
 	"\x03msg\x18\x02 \x01(\tR\x03msg\x12\x19\n" +
