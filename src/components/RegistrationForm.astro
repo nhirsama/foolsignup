@@ -46,6 +46,7 @@
                             type="text"
                             id="username"
                             name="username"
+                            autocomplete="username"
                             placeholder="Introduce tu usuario"
                             data-i18n-placeholder="placeholder.username.login"
                         />
@@ -102,6 +103,7 @@
                             type="password"
                             id="password"
                             name="password"
+                            autocomplete="current-password"
                             placeholder="Define una contrasena"
                             data-i18n-placeholder="placeholder.password"
                         />
@@ -119,6 +121,7 @@
                             type="password"
                             id="confirm-password"
                             name="confirm-password"
+                            autocomplete="new-password"
                             placeholder="Introduce de nuevo la contrasena"
                             data-i18n-placeholder="placeholder.confirmPassword"
                         />
@@ -191,25 +194,24 @@
             <button id="close-captcha-x" class="close-x">&times;</button>
         </div>
         <div class="captcha-body">
-                <div class="captcha-header">
-                    <div class="captcha-image-box">
-                        <img id="captcha-img" src="" alt="CAPTCHA" data-i18n-alt="captcha.alt" />
-                        <button id="refresh-captcha" class="refresh-btn" title="Actualizar captcha" data-i18n-title="captcha.refreshTitle">⟳</button>
-                    </div>
-                    <div class="captcha-guide" data-i18n="captcha.guide">Usa el deslizador y pulsa el numero que coincide con la imagen.</div>
+            <div class="captcha-header">
+                <div class="captcha-image-box">
+                    <img id="captcha-img" src="" alt="CAPTCHA" data-i18n-alt="captcha.alt" />
+                    <button id="refresh-captcha" class="refresh-btn" title="Actualizar captcha" data-i18n-title="captcha.refreshTitle">⟳</button>
                 </div>
-                <div id="captcha-turnstile-field" class="captcha-turnstile hidden">
-                    <label for="captcha-turnstile-widget" class="captcha-turnstile-label" data-i18n="label.turnstile">Verificacion humana</label>
-                    <div class="turnstile-shell">
-                        <div id="captcha-turnstile-widget" class="turnstile-widget"></div>
-                    </div>
-                </div>
-                <div class="captcha-main-area">
-                    <div id="captcha-grid" class="captcha-grid"></div>
-                    <div class="captcha-slider-box">
+                <div class="captcha-guide" data-i18n="captcha.guide">Usa el deslizador y pulsa el numero que coincide con la imagen.</div>
+            </div>
+            <div class="captcha-main-area">
+                <div id="captcha-grid" class="captcha-grid"></div>
+                <div class="captcha-slider-box">
                     <button type="button" class="slider-adjust-btn" id="slider-up">▲</button>
                     <input type="range" id="captcha-nav-slider" min="0" max="249995" value="0" step="1" />
                     <button type="button" class="slider-adjust-btn" id="slider-down">▼</button>
+                </div>
+            </div>
+            <div id="captcha-turnstile-field" class="captcha-turnstile hidden">
+                <div class="turnstile-shell">
+                    <div id="captcha-turnstile-widget" class="turnstile-widget"></div>
                 </div>
             </div>
         </div>
@@ -783,6 +785,9 @@
     .turnstile-shell {
         min-height: 74px;
         padding: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         border-radius: 20px;
         border: 1px solid rgba(148, 163, 184, 0.24);
         background: rgba(247, 250, 252, 0.9);
@@ -791,18 +796,14 @@
 
     .turnstile-widget {
         min-height: 65px;
+        width: 100%;
+        display: flex;
+        justify-content: center;
     }
 
     .captcha-turnstile {
-        display: grid;
-        gap: 10px;
-        margin-bottom: 18px;
-    }
-
-    .captcha-turnstile-label {
-        font-size: 0.82rem;
-        font-weight: 700;
-        color: var(--text-subtle);
+        padding: 0 18px 18px;
+        background: rgba(255, 255, 255, 0.95);
     }
 
     .stepper-input {
@@ -1411,18 +1412,42 @@
 
     #captcha-nav-slider {
         -webkit-appearance: none;
-        width: 6px;
+        appearance: none;
+        width: 16px;
         flex: 1;
-        border-radius: 999px;
+        margin: 0;
+        padding: 0;
+        border: 0;
         outline: none;
+        background: transparent;
+        writing-mode: vertical-lr;
+        direction: rtl;
+    }
+
+    #captcha-nav-slider::-webkit-slider-runnable-track {
+        width: 6px;
+        border-radius: 999px;
         background: rgba(203, 213, 225, 0.74);
-        writing-mode: bt-lr;
-        appearance: slider-vertical;
-        transform: rotate(180deg);
+    }
+
+    #captcha-nav-slider::-moz-range-track {
+        width: 6px;
+        border-radius: 999px;
+        background: rgba(203, 213, 225, 0.74);
     }
 
     #captcha-nav-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        background: #fff;
+        border: 2px solid var(--primary);
+        cursor: pointer;
+        box-shadow: 0 8px 16px rgba(11, 106, 103, 0.16);
+    }
+
+    #captcha-nav-slider::-moz-range-thumb {
         width: 18px;
         height: 18px;
         border-radius: 999px;
@@ -1748,6 +1773,10 @@
         .captcha-main-area {
             gap: 10px;
             padding: 12px;
+        }
+
+        .captcha-turnstile {
+            padding: 0 12px 12px;
         }
 
         .captcha-grid {

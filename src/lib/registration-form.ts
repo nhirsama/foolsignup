@@ -764,6 +764,11 @@ export function initRegistrationForm(): void {
             }
         };
 
+        const syncCredentialAutocomplete = (): void => {
+            passwordInput.autocomplete = isLoginMode ? 'current-password' : 'new-password';
+            confirmPasswordInput.autocomplete = 'new-password';
+        };
+
         const updateUI = (): void => {
             hideAlerts();
             closeLanguageMenu();
@@ -803,6 +808,7 @@ export function initRegistrationForm(): void {
             }
 
             captchaTurnstileField.classList.toggle('hidden', !turnstileSiteKey);
+            syncCredentialAutocomplete();
             resetSendCodeTurnstile();
             refreshSendCodeButton();
             updatePasswordComplexityUI();
