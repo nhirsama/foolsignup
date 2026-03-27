@@ -24,7 +24,13 @@ func newCaptchaThrottleDB(t *testing.T) *sql.DB {
 		scope TEXT NOT NULL,
 		identifier TEXT NOT NULL,
 		last_sent_unix_ms INTEGER NOT NULL,
+		expires_at DATETIME,
 		PRIMARY KEY (scope, identifier)
+	);
+	CREATE TABLE registration_attempts (
+		email TEXT PRIMARY KEY,
+		"count" INTEGER DEFAULT 0,
+		expires_at DATETIME
 	);`
 	if _, err := testDB.Exec(schema); err != nil {
 		t.Fatalf("create schema: %v", err)

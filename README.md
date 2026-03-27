@@ -57,6 +57,7 @@ cd foolsignup
 - 使用 SQLite（默认）：`DB_TYPE=sqlite`
 - 使用 PostgreSQL：`DB_TYPE=postgres`，并设置 `DB_DSN`（PostgreSQL 需自行安装/部署）
 - 若部署在反向代理之后且代理地址不属于回环/私有网段，请设置 `TRUSTED_PROXY_CIDRS`，否则应用会直接使用连接对端地址进行限流。
+- 本地环回地址、RFC1918 私有地址和链路本地地址默认已经被视为可信代理，不需要再额外写进 `TRUSTED_PROXY_CIDRS`。
 
 ### 4. 启动服务
 

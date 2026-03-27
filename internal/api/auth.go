@@ -60,6 +60,20 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	retryAfter, err = db.ReserveIdentifierRequest("login_user", req.Username, loginUserRateLimitWindow)
+	if err != nil {
+		res.Code = http.StatusInternalServerError
+		res.Msg = "系统繁忙"
+		sendProto(w, res)
+		return
+	}
+	if retryAfter > 0 {
+		res.Code = http.StatusTooManyRequests
+		res.Msg = fmt.Sprintf("该账户请求过于频繁，请 %d 秒后再试", retryAfterSeconds(retryAfter))
+		sendProto(w, res)
+		return
+	}
+
 	id, ok := db.GetUserByCredentials(req.Username, req.Password)
 	if !ok {
 		res.Code = http.StatusUnauthorized

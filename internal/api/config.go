@@ -4,6 +4,7 @@ import "time"
 
 const (
 	loginRateLimitWindow       = time.Second
+	loginUserRateLimitWindow   = time.Second
 	registerRateLimitWindow    = 2 * time.Second
 	sendCodeRateLimitWindow    = 2 * time.Second
 	captchaRateLimitWindow     = 2 * time.Second
