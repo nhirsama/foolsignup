@@ -93,7 +93,7 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	applyDomainLimit := !isCommonEmailDomain(domain)
+	applyDomainLimit := true
 	limitedScope, retryAfter, err := db.ReserveVerificationEmailSend(email, domain, applyDomainLimit)
 	if err != nil {
 		res.Code = http.StatusInternalServerError

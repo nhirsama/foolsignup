@@ -128,6 +128,27 @@ func validateMaxBytes(value string, limit int, msg string) (int32, string, bool)
 	return http.StatusRequestEntityTooLarge, msg, false
 }
 
+func allowedOrigin() string {
+	origin := os.Getenv("ALLOWED_ORIGIN")
+	if origin == "" {
+		origin = "http://localhost:4321"
+	}
+	return origin
+}
+
+func requestOriginAllowed(r *http.Request) bool {
+	allowed := allowedOrigin()
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		return origin == allowed
+	}
+
+	referer := strings.TrimSpace(r.Header.Get("Referer"))
+	if referer == "" {
+		return false
+	}
+	return strings.HasPrefix(referer, allowed+"/") || referer == allowed
+}
+
 // sendProto 序列化 Protobuf 消息并发送二进制响应。
 func sendProto(w http.ResponseWriter, msg proto.Message) {
 	w.Header().Set("Content-Type", "application/x-protobuf")

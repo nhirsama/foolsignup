@@ -1,5 +1,7 @@
 package api
 
+var loginVerifySlots = make(chan struct{}, loginVerifyConcurrencyLimit)
+var registerWriteSlots = make(chan struct{}, registerWriteConcurrencyLimit)
 var mailSendSlots = make(chan struct{}, mailSendConcurrencyLimit)
 
 func tryAcquireSlot(slots chan struct{}) bool {

@@ -60,19 +60,13 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	retryAfter, err = db.ReserveIdentifierRequest("login_user", req.Username, loginUserRateLimitWindow)
-	if err != nil {
-		res.Code = http.StatusInternalServerError
-		res.Msg = "系统繁忙"
+	if !tryAcquireSlot(loginVerifySlots) {
+		res.Code = http.StatusServiceUnavailable
+		res.Msg = "登录服务繁忙，请稍后重试"
 		sendProto(w, res)
 		return
 	}
-	if retryAfter > 0 {
-		res.Code = http.StatusTooManyRequests
-		res.Msg = fmt.Sprintf("该账户请求过于频繁，请 %d 秒后再试", retryAfterSeconds(retryAfter))
-		sendProto(w, res)
-		return
-	}
+	defer releaseSlot(loginVerifySlots)
 
 	id, ok := db.GetUserByCredentials(req.Username, req.Password)
 	if !ok {
@@ -155,16 +149,48 @@ func HandleMe(w http.ResponseWriter, r *http.Request) {
 
 // HandleLogout 清除会话 Cookie。
 func HandleLogout(w http.ResponseWriter, r *http.Request) {
-	setCorsHeaders(w)
+	if !setupCORSAndMethod(w, r, http.MethodPost) {
+		return
+	}
+	if !requestOriginAllowed(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if cookie, err := r.Cookie("uip_session"); err == nil {
 		clearSessionToken(cookie.Value)
 	}
-	http.SetCookie(w, &http.Cookie{
+	if cookie, err := r.Cookie("uip_temp_auth"); err == nil {
+		clearTempAuthToken(cookie.Value)
+	}
+	clearAuthCookies(w)
+	w.WriteHeader(http.StatusOK)
+}
+
+func clearAuthCookies(w http.ResponseWriter) {
+	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+	isSecure := strings.HasPrefix(allowedOrigin, "https://")
+
+	sessionCookie := &http.Cookie{
 		Name:     "uip_session",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		MaxAge:   -1,
-	})
-	w.WriteHeader(http.StatusOK)
+	}
+	tempCookie := &http.Cookie{
+		Name:     "uip_temp_auth",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	}
+	if isSecure {
+		sessionCookie.Secure = true
+		sessionCookie.SameSite = http.SameSiteNoneMode
+		tempCookie.Secure = true
+		tempCookie.SameSite = http.SameSiteNoneMode
+	}
+
+	http.SetCookie(w, sessionCookie)
+	http.SetCookie(w, tempCookie)
 }
