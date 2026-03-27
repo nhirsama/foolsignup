@@ -16,6 +16,7 @@ const (
 	maxEmailBytes                 = 320
 	maxPasswordBytes              = 256
 	maxProofBytes                 = 256
+	maxTurnstileTokenBytes        = 4096
 	maxCaptchaKeyBytes            = 128
 	maxCaptchaValueBytes          = 16
 	maxTempTokenBytes             = 128

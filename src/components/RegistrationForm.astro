@@ -124,6 +124,13 @@
                         />
                     </div>
 
+                    <div class="form-item hidden" id="turnstile-field">
+                        <label for="turnstile-widget" data-i18n="label.turnstile">Verificacion humana</label>
+                        <div class="turnstile-shell">
+                            <div id="turnstile-widget" class="turnstile-widget"></div>
+                        </div>
+                    </div>
+
                     <div class="form-actions" id="form-actions">
                         <button type="submit" id="submit-btn" class="primary-button">Enviar</button>
                         <button type="button" id="register-back-btn" class="secondary-button hidden">Volver al paso anterior</button>
@@ -772,6 +779,19 @@
     .input-with-action .inline-button {
         width: 112px;
         min-width: 112px;
+    }
+
+    .turnstile-shell {
+        min-height: 74px;
+        padding: 10px;
+        border-radius: 20px;
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        background: rgba(247, 250, 252, 0.9);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    }
+
+    .turnstile-widget {
+        min-height: 65px;
     }
 
     .stepper-input {

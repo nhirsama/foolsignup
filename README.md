@@ -51,6 +51,7 @@ cd foolsignup
 | `MAIL_API_ENDPOINT` | 邮件服务 API 地址 (基于 HTTP POST)                               | `https://api.cyberpersons.com/email/send`                                                   |
 | `MAIL_API_KEY`      | 邮件服务 API Key                                             | `your_secret_key`                                                                           |
 | `MAIL_FROM`         | 发件人邮箱                                                    | `noreply@example.com`                                                                       |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile 服务端密钥。配置后，注册最后一步必须通过 Turnstile 校验 | `0x4AAAA...` |
 
 数据库切换示例：
 
@@ -94,3 +95,4 @@ pnpm build
 ### 3. 配置
 
 请配置环境变量 `PUBLIC_API_URL` 并指向后端 URL。
+如需启用最终注册阶段的 Cloudflare Turnstile，请额外配置 `PUBLIC_TURNSTILE_SITE_KEY`，并在后端同时配置 `TURNSTILE_SECRET_KEY`。

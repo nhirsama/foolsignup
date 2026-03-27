@@ -53,6 +53,7 @@ message RegisterRequest {
   int32 age = 3;
   string password = 4;
   string code = 5;
+  string turnstile_token = 6;
 }
 message RegisterResponse {
   int32 code = 1;

@@ -769,6 +769,9 @@ export namespace foolsignup {
 
                 /** RegisterRequest code */
                 code?: (string|null);
+
+                /** RegisterRequest turnstileToken */
+                turnstileToken?: (string|null);
             }
 
             /** Represents a RegisterRequest. */
@@ -794,6 +797,9 @@ export namespace foolsignup {
 
                 /** RegisterRequest code. */
                 public code: string;
+
+                /** RegisterRequest turnstileToken. */
+                public turnstileToken: string;
 
                 /**
                  * Creates a new RegisterRequest instance using the specified properties.
