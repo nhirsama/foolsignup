@@ -57,11 +57,9 @@ func InitDB() {
 			log.Fatalf("failed to ping database: %v", err)
 		}
 
-		if _, err := Instance.Exec(schemaForDialect()); err != nil {
+		if err := initializeSchema(); err != nil {
 			log.Fatalf("failed to initialize schema: %v", err)
 		}
-
-		applyLegacyMigrations()
 
 		var count int
 		if err := dbQueryRow("SELECT COUNT(*) FROM users").Scan(&count); err != nil {
@@ -232,6 +230,15 @@ func schemaForDialect() string {
 	CREATE INDEX IF NOT EXISTS idx_email_send_throttles_expires_at ON email_send_throttles (expires_at);
 	CREATE INDEX IF NOT EXISTS idx_registration_attempts_expires_at ON registration_attempts (expires_at);
 	CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user_id ON webauthn_credentials (user_id);`
+}
+
+func initializeSchema() error {
+	// Old deployments may already have transient-state tables created without the
+	// newer expires_at columns. Apply additive migrations first so the schema DDL
+	// below can safely create indexes on those columns.
+	applyLegacyMigrations()
+	_, err := Instance.Exec(schemaForDialect())
+	return err
 }
 
 func applyLegacyMigrations() {

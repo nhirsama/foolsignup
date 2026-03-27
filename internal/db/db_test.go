@@ -86,6 +86,42 @@ func newRegistrationAttemptsTestDB(t *testing.T) *sql.DB {
 	return testDB
 }
 
+func newLegacySchemaTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	testDB, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	schema := `
+	CREATE TABLE email_send_throttles (
+		scope TEXT NOT NULL,
+		identifier TEXT NOT NULL,
+		last_sent_unix_ms INTEGER NOT NULL,
+		PRIMARY KEY (scope, identifier)
+	);
+	CREATE TABLE registration_attempts (
+		email TEXT PRIMARY KEY,
+		"count" INTEGER DEFAULT 0
+	);`
+	if _, err := testDB.Exec(schema); err != nil {
+		t.Fatalf("create legacy schema: %v", err)
+	}
+
+	previous := Instance
+	previousDialect := dialect
+	Instance = testDB
+	dialect = dbTypeSQLite
+	t.Cleanup(func() {
+		Instance = previous
+		dialect = previousDialect
+		_ = testDB.Close()
+	})
+
+	return testDB
+}
+
 func newVerificationCodeTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -116,6 +152,33 @@ func newVerificationCodeTestDB(t *testing.T) *sql.DB {
 	})
 
 	return testDB
+}
+
+func TestInitializeSchemaHandlesLegacyTransientTables(t *testing.T) {
+	testDB := newLegacySchemaTestDB(t)
+
+	if err := initializeSchema(); err != nil {
+		t.Fatalf("initialize schema failed: %v", err)
+	}
+
+	if _, err := testDB.Exec(
+		`INSERT INTO email_send_throttles (scope, identifier, last_sent_unix_ms, expires_at) VALUES (?, ?, ?, ?)`,
+		"ip:send_code",
+		"203.0.113.5",
+		time.Now().UnixMilli(),
+		time.Now().Add(time.Minute),
+	); err != nil {
+		t.Fatalf("insert throttle with expires_at failed: %v", err)
+	}
+
+	if _, err := testDB.Exec(
+		`INSERT INTO registration_attempts (email, "count", expires_at) VALUES (?, ?, ?)`,
+		"user@example.com",
+		1,
+		time.Now().Add(time.Minute),
+	); err != nil {
+		t.Fatalf("insert registration attempt with expires_at failed: %v", err)
+	}
 }
 
 func TestReserveVerificationEmailSendCommonDomainOnlyLimitsPerEmail(t *testing.T) {
