@@ -9,13 +9,29 @@ import (
 )
 
 func getClientIP(r *http.Request) string {
-	if r == nil {
+	ip, ok := resolveClientIP(r)
+	if !ok {
 		return ""
+	}
+	return canonicalizeRateLimitIP(ip)
+}
+
+func getClientIPAddress(r *http.Request) string {
+	ip, ok := resolveClientIP(r)
+	if !ok {
+		return ""
+	}
+	return ip.Unmap().String()
+}
+
+func resolveClientIP(r *http.Request) (netip.Addr, bool) {
+	if r == nil {
+		return netip.Addr{}, false
 	}
 
 	remoteIP, ok := parseRequestIP(r.RemoteAddr)
 	if !ok {
-		return ""
+		return netip.Addr{}, false
 	}
 
 	clientIP := remoteIP
@@ -27,7 +43,7 @@ func getClientIP(r *http.Request) string {
 		}
 	}
 
-	return canonicalizeRateLimitIP(clientIP)
+	return clientIP.Unmap(), true
 }
 
 func parseRequestIP(raw string) (netip.Addr, bool) {

@@ -15,6 +15,12 @@ const DASHBOARD_ZH_CN_TEXT = {
     logout: '安全退出系统',
 } as const;
 
+const commonEmailDomains = new Set([
+    'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com', 'me.com', 'aol.com', 'live.com', 'msn.com',
+    'qq.com', '163.com', '126.com', 'foxmail.com', 'aliyun.com', 'sina.com', 'sina.cn', 'yeah.net', '139.com', '189.cn',
+    'proton.me', 'protonmail.com', 'pm.me', 'tuta.com', 'tutanota.com', 'zoho.com', 'yandex.com',
+]);
+
 type ParsedEmail = {
     email: string;
     domain: string;
@@ -80,6 +86,10 @@ function parseEmailAddress(value: string): ParsedEmail | null {
     if (!local || !domain) return null;
 
     return { email: normalized, domain };
+}
+
+function isCommonEmailDomain(domain: string): boolean {
+    return commonEmailDomains.has(domain);
 }
 
 function getRemainingSeconds(until: number): number {
@@ -179,8 +189,6 @@ export function initRegistrationForm(): void {
         const passwordInput = requireElement<HTMLInputElement>('password');
         const confirmPasswordField = requireElement<HTMLElement>('confirm-password-field');
         const confirmPasswordInput = requireElement<HTMLInputElement>('confirm-password');
-        const turnstileField = requireElement<HTMLElement>('turnstile-field');
-        const turnstileWidget = requireElement<HTMLElement>('turnstile-widget');
         const passwordComplexityBox = requireElement<HTMLElement>('password-complexity-box');
         const passwordComplexityFill = requireElement<HTMLElement>('password-complexity-fill');
 
@@ -188,6 +196,8 @@ export function initRegistrationForm(): void {
         const captchaImg = requireElement<HTMLImageElement>('captcha-img');
         const captchaGrid = requireElement<HTMLElement>('captcha-grid');
         const captchaSlider = requireElement<HTMLInputElement>('captcha-nav-slider');
+        const captchaTurnstileField = requireElement<HTMLElement>('captcha-turnstile-field');
+        const captchaTurnstileWidget = requireElement<HTMLElement>('captcha-turnstile-widget');
 
         const successAlert = requireElement<HTMLElement>('success-alert');
         const errorAlert = requireElement<HTMLElement>('error-alert');
@@ -205,8 +215,8 @@ export function initRegistrationForm(): void {
         let isSeededEmailValue = false;
         let pendingStageAfterSendCode: RegisterStage | null = null;
         let countdownTimer: number | null = null;
-        let registerTurnstileWidgetId: TurnstileWidgetId | null = null;
-        let registerTurnstileToken = '';
+        let sendCodeTurnstileWidgetId: TurnstileWidgetId | null = null;
+        let sendCodeTurnstileToken = '';
         let turnstileLoadPromise: Promise<TurnstileApi> | null = null;
 
         const defaultRegisterEmail = 'name@example.com';
@@ -309,7 +319,7 @@ export function initRegistrationForm(): void {
             const emailRemaining = parsed.email === sendCooldownState.email
                 ? getRemainingSeconds(sendCooldownState.emailUntil)
                 : 0;
-            const domainRemaining = parsed.domain === sendCooldownState.domain
+            const domainRemaining = !isCommonEmailDomain(parsed.domain) && parsed.domain === sendCooldownState.domain
                 ? getRemainingSeconds(sendCooldownState.domainUntil)
                 : 0;
 
@@ -360,7 +370,9 @@ export function initRegistrationForm(): void {
 
         const applySendCodeSuccessCooldown = (parsed: ParsedEmail): void => {
             setEmailCooldown(parsed, 60);
-            setDomainCooldown(parsed, 30);
+            if (!isCommonEmailDomain(parsed.domain)) {
+                setDomainCooldown(parsed, 30);
+            }
             refreshSendCodeButton();
         };
 
@@ -525,12 +537,18 @@ export function initRegistrationForm(): void {
             captchaGrid.innerHTML = html;
         };
 
-        const openCaptchaForSendCode = (nextStage: RegisterStage | null): void => {
+        const openCaptchaForSendCode = async (nextStage: RegisterStage | null): Promise<void> => {
             pendingStageAfterSendCode = nextStage;
             hideAlerts();
-            void fetchNewCaptcha();
             captchaModal.classList.remove('hidden');
             renderGrid();
+            captchaTurnstileField.classList.toggle('hidden', !turnstileSiteKey);
+            if (turnstileSiteKey) {
+                void ensureSendCodeTurnstile();
+            }
+            if (!(await fetchNewCaptcha())) {
+                closeCaptcha();
+            }
         };
 
         const setRegisterStage = (nextStage: RegisterStage): void => {
@@ -552,7 +570,6 @@ export function initRegistrationForm(): void {
             ageField.classList.toggle('hidden', registerStage !== 'details');
             passwordField.classList.toggle('hidden', registerStage !== 'details');
             confirmPasswordField.classList.toggle('hidden', registerStage !== 'details');
-            turnstileField.classList.toggle('hidden', registerStage !== 'details' || !turnstileSiteKey);
 
             emailInput.readOnly = registerStage !== 'email';
             emailInput.tabIndex = registerStage === 'email' ? 0 : -1;
@@ -572,25 +589,24 @@ export function initRegistrationForm(): void {
             updatePasswordComplexityUI();
             syncEmailSeedStyle();
             focusFieldForStage();
-
-            if (registerStage === 'details' && turnstileSiteKey) {
-                void ensureRegisterTurnstile();
-            } else {
-                clearRegisterTurnstileState();
-            }
         };
 
-        const fetchNewCaptcha = async (): Promise<void> => {
+        const fetchNewCaptcha = async (): Promise<boolean> => {
             try {
-                const res = await fetch(`${apiUrl}/api/captcha`);
-                const buffer = await res.arrayBuffer();
-                const result = authpb.GetCaptchaResponse.decode(new Uint8Array(buffer));
-                if (result.code === 200) {
-                    captchaImg.src = result.data.image;
-                    captchaImg.dataset.key = result.data.captchaKey;
+                const res = await fetch(`${apiUrl}/api/captcha`, {
+                    headers: { 'X-Trace-Id': traceId },
+                });
+                const result = await handleFetchResponse(res, authpb.GetCaptchaResponse);
+                if (!result.data?.image || !result.data?.captchaKey) {
+                    throw new Error(t('error.verifyFailed'));
                 }
+                captchaImg.src = result.data.image;
+                captchaImg.dataset.key = result.data.captchaKey;
+                return true;
             } catch (error) {
-                console.error(error);
+                const err = error as Error & { code?: number; traceId?: string };
+                showError(err.message || t('error.verifyFailed'), err.code, err.traceId || '');
+                return false;
             }
         };
 
@@ -607,6 +623,7 @@ export function initRegistrationForm(): void {
                     email: parsedEmail.email,
                     captchaKey: key,
                     captchaValue: value,
+                    turnstileToken: sendCodeTurnstileToken,
                 });
                 const res = await fetch(`${apiUrl}/api/send-code`, {
                     method: 'POST',
@@ -629,6 +646,7 @@ export function initRegistrationForm(): void {
                 showError(err.message || t('error.sendCodeFailed'), err.code, err.traceId || '');
             } finally {
                 pendingStageAfterSendCode = null;
+                resetSendCodeTurnstile();
                 loading.classList.add('hidden');
             }
         };
@@ -642,8 +660,8 @@ export function initRegistrationForm(): void {
             return hashHex.startsWith('00000');
         };
 
-        const clearRegisterTurnstileState = (): void => {
-            registerTurnstileToken = '';
+        const clearSendCodeTurnstileState = (): void => {
+            sendCodeTurnstileToken = '';
         };
 
         const loadTurnstile = async (): Promise<TurnstileApi> => {
@@ -688,41 +706,41 @@ export function initRegistrationForm(): void {
             return turnstileLoadPromise;
         };
 
-        const resetRegisterTurnstile = (): void => {
-            clearRegisterTurnstileState();
-            if (window.turnstile && registerTurnstileWidgetId) {
-                window.turnstile.reset(registerTurnstileWidgetId);
+        const resetSendCodeTurnstile = (): void => {
+            clearSendCodeTurnstileState();
+            if (window.turnstile && sendCodeTurnstileWidgetId) {
+                window.turnstile.reset(sendCodeTurnstileWidgetId);
             }
         };
 
-        const ensureRegisterTurnstile = async (): Promise<void> => {
-            if (!turnstileSiteKey || isLoginMode || registerStage !== 'details') {
+        const ensureSendCodeTurnstile = async (): Promise<void> => {
+            if (!turnstileSiteKey || captchaModal.classList.contains('hidden')) {
                 return;
             }
 
             try {
                 const turnstile = await loadTurnstile();
-                if (!registerTurnstileWidgetId) {
-                    registerTurnstileWidgetId = turnstile.render(turnstileWidget, {
+                if (!sendCodeTurnstileWidgetId) {
+                    sendCodeTurnstileWidgetId = turnstile.render(captchaTurnstileWidget, {
                         sitekey: turnstileSiteKey,
                         theme: 'light',
                         callback: (token: string) => {
-                            registerTurnstileToken = token;
+                            sendCodeTurnstileToken = token;
                         },
                         'expired-callback': () => {
-                            clearRegisterTurnstileState();
+                            clearSendCodeTurnstileState();
                         },
                         'error-callback': () => {
-                            clearRegisterTurnstileState();
+                            clearSendCodeTurnstileState();
                         },
                         'timeout-callback': () => {
-                            clearRegisterTurnstileState();
+                            clearSendCodeTurnstileState();
                         },
                     });
                     return;
                 }
 
-                resetRegisterTurnstile();
+                resetSendCodeTurnstile();
             } catch {
                 showError(t('error.verifyFailed'));
             }
@@ -775,7 +793,6 @@ export function initRegistrationForm(): void {
                 ageField.classList.add('hidden');
                 passwordField.classList.remove('hidden');
                 confirmPasswordField.classList.add('hidden');
-                turnstileField.classList.add('hidden');
                 registerBackBtn.classList.add('hidden');
                 sendCodeBtn.classList.add('hidden');
                 emailAction.classList.add('is-single');
@@ -783,9 +800,10 @@ export function initRegistrationForm(): void {
                 registerBackBtn.classList.remove('is-highlighted-action');
                 submitBtn.classList.remove('is-muted-action');
                 isSeededEmailValue = false;
-                clearRegisterTurnstileState();
             }
 
+            captchaTurnstileField.classList.toggle('hidden', !turnstileSiteKey);
+            resetSendCodeTurnstile();
             refreshSendCodeButton();
             updatePasswordComplexityUI();
             syncEmailSeedStyle();
@@ -915,10 +933,16 @@ export function initRegistrationForm(): void {
         });
 
         captchaSlider.addEventListener('input', renderGrid);
-        requireElement<HTMLButtonElement>('refresh-captcha').addEventListener('click', fetchNewCaptcha);
+        requireElement<HTMLButtonElement>('refresh-captcha').addEventListener('click', () => {
+            void fetchNewCaptcha();
+        });
         captchaGrid.addEventListener('click', (event) => {
             const btn = (event.target as HTMLElement).closest('.captcha-btn') as HTMLButtonElement | null;
             if (!btn) return;
+            if (turnstileSiteKey && !sendCodeTurnstileToken) {
+                showError(t('error.missingTurnstile'));
+                return;
+            }
             captchaModal.classList.add('hidden');
             void executeSendCode(btn.textContent ?? '', captchaImg.dataset.key ?? '');
         });
@@ -926,6 +950,7 @@ export function initRegistrationForm(): void {
         const closeCaptcha = (): void => {
             pendingStageAfterSendCode = null;
             captchaModal.classList.add('hidden');
+            resetSendCodeTurnstile();
         };
         requireElement<HTMLButtonElement>('close-captcha-x').addEventListener('click', closeCaptcha);
         requireElement<HTMLButtonElement>('close-captcha-btn').addEventListener('click', closeCaptcha);
@@ -946,7 +971,7 @@ export function initRegistrationForm(): void {
                 return;
             }
 
-            openCaptchaForSendCode(null);
+            void openCaptchaForSendCode(null);
         });
 
         registerBackBtn.addEventListener('click', () => {
@@ -957,7 +982,6 @@ export function initRegistrationForm(): void {
                 passwordInput.value = '';
                 confirmPasswordInput.value = '';
                 updatePasswordComplexityUI();
-                resetRegisterTurnstile();
                 setRegisterStage('verify');
                 return;
             }
@@ -970,7 +994,6 @@ export function initRegistrationForm(): void {
             hideAlerts();
 
             const rawData = Object.fromEntries(new FormData(form).entries());
-            let registerRequestSent = false;
 
             try {
                 let body: Uint8Array;
@@ -1015,7 +1038,7 @@ export function initRegistrationForm(): void {
                             return;
                         }
 
-                        openCaptchaForSendCode('verify');
+                        void openCaptchaForSendCode('verify');
                         return;
                     }
 
@@ -1080,25 +1103,18 @@ export function initRegistrationForm(): void {
                         showError(t('error.invalidCaptcha'));
                         return;
                     }
-                    if (turnstileSiteKey && !registerTurnstileToken) {
-                        showError(t('error.missingTurnstile'));
-                        return;
-                    }
-
                     const req = authpb.RegisterRequest.fromObject({
                         username: rawData.username,
                         email: parsedEmail.email,
                         age: parseInt(String(rawData.age), 10),
                         password: rawData.password,
                         code: rawData.code,
-                        turnstileToken: registerTurnstileToken,
                     });
                     body = authpb.RegisterRequest.encode(req).finish();
                     responseClass = authpb.RegisterResponse;
                 }
 
                 loading.classList.remove('hidden');
-                registerRequestSent = !isLoginMode;
                 const response = await fetch(`${apiUrl}${isLoginMode ? '/api/login' : '/api/register'}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-protobuf', 'X-Trace-Id': traceId },
@@ -1131,9 +1147,6 @@ export function initRegistrationForm(): void {
                 }
                 showError(err.message || t('error.requestFailed'), err.code, err.traceId || '');
             } finally {
-                if (registerRequestSent) {
-                    resetRegisterTurnstile();
-                }
                 loading.classList.add('hidden');
             }
         });

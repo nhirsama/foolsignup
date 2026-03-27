@@ -40,6 +40,7 @@ message SendEmailCodeRequest {
   string email = 1;
   string captcha_key = 2;
   string captcha_value = 3;
+  string turnstile_token = 4;
 }
 message SendEmailCodeResponse {
   int32 code = 1;
@@ -53,7 +54,8 @@ message RegisterRequest {
   int32 age = 3;
   string password = 4;
   string code = 5;
-  string turnstile_token = 6;
+  reserved 6;
+  reserved "turnstile_token";
 }
 message RegisterResponse {
   int32 code = 1;

@@ -49,6 +49,11 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 		sendProto(w, res)
 		return
 	}
+	if code, msg, ok := validateMaxBytes(req.TurnstileToken, maxTurnstileTokenBytes, "Cloudflare 验证凭证过长"); !ok {
+		res.Code, res.Msg = code, msg
+		sendProto(w, res)
+		return
+	}
 
 	retryAfter, err := db.ReserveIPRequest("send_code", getClientIP(r), sendCodeRateLimitWindow)
 	if err != nil {
@@ -92,8 +97,13 @@ func HandleSendCode(w http.ResponseWriter, r *http.Request) {
 		sendProto(w, res)
 		return
 	}
+	if err := verifyTurnstile(r, req.TurnstileToken); err != nil {
+		res.Code, res.Msg = turnstileErrorResponse(err)
+		sendProto(w, res)
+		return
+	}
 
-	applyDomainLimit := true
+	applyDomainLimit := !isCommonEmailDomain(domain)
 	limitedScope, retryAfter, err := db.ReserveVerificationEmailSend(email, domain, applyDomainLimit)
 	if err != nil {
 		res.Code = http.StatusInternalServerError

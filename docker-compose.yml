@@ -27,4 +27,7 @@ services:
       - MAIL_API_ENDPOINT=
       - MAIL_FROM=
       - MAIL_API_KEY=
+
+      # Turnstile 密钥配置
+      - TURNSTILE_SECRET_KEY=
     restart: always

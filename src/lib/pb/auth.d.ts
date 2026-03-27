@@ -545,6 +545,9 @@ export namespace foolsignup {
 
                 /** SendEmailCodeRequest captchaValue */
                 captchaValue?: (string|null);
+
+                /** SendEmailCodeRequest turnstileToken */
+                turnstileToken?: (string|null);
             }
 
             /** Represents a SendEmailCodeRequest. */
@@ -564,6 +567,9 @@ export namespace foolsignup {
 
                 /** SendEmailCodeRequest captchaValue. */
                 public captchaValue: string;
+
+                /** SendEmailCodeRequest turnstileToken. */
+                public turnstileToken: string;
 
                 /**
                  * Creates a new SendEmailCodeRequest instance using the specified properties.
@@ -769,9 +775,6 @@ export namespace foolsignup {
 
                 /** RegisterRequest code */
                 code?: (string|null);
-
-                /** RegisterRequest turnstileToken */
-                turnstileToken?: (string|null);
             }
 
             /** Represents a RegisterRequest. */
@@ -797,9 +800,6 @@ export namespace foolsignup {
 
                 /** RegisterRequest code. */
                 public code: string;
-
-                /** RegisterRequest turnstileToken. */
-                public turnstileToken: string;
 
                 /**
                  * Creates a new RegisterRequest instance using the specified properties.

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"foolsignup/internal/db"
@@ -84,7 +83,7 @@ func sendCodeRequest(t *testing.T, email, captchaKey, captchaValue, remoteAddr s
 	return &res
 }
 
-func TestHandleSendCodeAppliesDomainThrottleToCommonDomains(t *testing.T) {
+func TestHandleSendCodeSkipsDomainThrottleForCommonDomains(t *testing.T) {
 	newSendCodeHandlerDB(t)
 
 	previousStore := CaptchaStore
@@ -105,10 +104,7 @@ func TestHandleSendCodeAppliesDomainThrottleToCommonDomains(t *testing.T) {
 		t.Fatalf("set captcha-2: %v", err)
 	}
 	second := sendCodeRequest(t, "second@gmail.com", "captcha-2", "123456", "198.51.100.20:1002")
-	if second.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected second request to be throttled, got code=%d msg=%q", second.Code, second.Msg)
-	}
-	if !strings.Contains(second.Msg, "域名") {
-		t.Fatalf("expected domain throttle message, got %q", second.Msg)
+	if second.Code != http.StatusOK {
+		t.Fatalf("expected second request to pass for common domains, got code=%d msg=%q", second.Code, second.Msg)
 	}
 }

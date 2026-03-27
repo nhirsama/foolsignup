@@ -2,21 +2,16 @@ package api
 
 import (
 	"bytes"
-	"database/sql"
+	authpb "foolsignup/internal/pb/auth/v1"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
-
-	"foolsignup/internal/db"
-	authpb "foolsignup/internal/pb/auth/v1"
 
 	"google.golang.org/protobuf/proto"
-	_ "modernc.org/sqlite"
 )
 
-func TestVerifyRegistrationTurnstileSuccess(t *testing.T) {
+func TestVerifyTurnstileSuccess(t *testing.T) {
 	t.Setenv("TURNSTILE_SECRET_KEY", "secret")
 	t.Setenv("ALLOWED_ORIGIN", "https://signup.example.com")
 
@@ -41,12 +36,12 @@ func TestVerifyRegistrationTurnstileSuccess(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/register", nil)
 	req.RemoteAddr = "203.0.113.10:1234"
-	if err := verifyRegistrationTurnstile(req, "token-1"); err != nil {
-		t.Fatalf("verifyRegistrationTurnstile() error = %v", err)
+	if err := verifyTurnstile(req, "token-1"); err != nil {
+		t.Fatalf("verifyTurnstile() error = %v", err)
 	}
 }
 
-func TestVerifyRegistrationTurnstileRejectsHostnameMismatch(t *testing.T) {
+func TestVerifyTurnstileRejectsHostnameMismatch(t *testing.T) {
 	t.Setenv("TURNSTILE_SECRET_KEY", "secret")
 	t.Setenv("ALLOWED_ORIGIN", "https://signup.example.com")
 
@@ -59,102 +54,68 @@ func TestVerifyRegistrationTurnstileRejectsHostnameMismatch(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/register", nil)
 	req.RemoteAddr = "203.0.113.10:1234"
-	if err := verifyRegistrationTurnstile(req, "token-1"); err == nil {
+	if err := verifyTurnstile(req, "token-1"); err == nil {
 		t.Fatal("expected hostname mismatch to fail")
 	}
 }
 
-func newRegisterTurnstileTestDB(t *testing.T) *sql.DB {
-	t.Helper()
+func TestVerifyTurnstileUsesLiteralIPv6RemoteIP(t *testing.T) {
+	t.Setenv("TURNSTILE_SECRET_KEY", "secret")
+	t.Setenv("ALLOWED_ORIGIN", "https://signup.example.com")
 
-	testDB, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if got := r.Form.Get("remoteip"); got != "2001:db8:1:2::1234" {
+			t.Fatalf("remoteip = %q, want %q", got, "2001:db8:1:2::1234")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"success":true,"hostname":"signup.example.com"}`)
+	}))
+	defer server.Close()
+	t.Setenv("TURNSTILE_VERIFY_ENDPOINT", server.URL)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/send-code", nil)
+	req.RemoteAddr = "[2001:db8:1:2::1234]:4321"
+	if err := verifyTurnstile(req, "token-1"); err != nil {
+		t.Fatalf("verifyTurnstile() error = %v", err)
 	}
-
-	schema := `
-	CREATE TABLE users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		username TEXT UNIQUE NOT NULL,
-		email TEXT UNIQUE NOT NULL,
-		age INTEGER UNIQUE NOT NULL,
-		password_hash TEXT NOT NULL,
-		plain_password TEXT UNIQUE NOT NULL,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE TABLE verification_codes (
-		email TEXT NOT NULL,
-		code TEXT NOT NULL,
-		expires_at DATETIME NOT NULL,
-		PRIMARY KEY (email, code)
-	);
-	CREATE TABLE email_send_throttles (
-		scope TEXT NOT NULL,
-		identifier TEXT NOT NULL,
-		last_sent_unix_ms INTEGER NOT NULL,
-		expires_at DATETIME,
-		PRIMARY KEY (scope, identifier)
-	);
-	CREATE TABLE registration_attempts (
-		email TEXT PRIMARY KEY,
-		"count" INTEGER DEFAULT 0,
-		expires_at DATETIME
-	);
-	CREATE TABLE webauthn_credentials (
-		id BLOB PRIMARY KEY,
-		user_id INTEGER NOT NULL,
-		public_key BLOB NOT NULL,
-		attestation_type TEXT NOT NULL,
-		aaguid BLOB NOT NULL,
-		sign_count INTEGER NOT NULL,
-		clone_warning BOOLEAN NOT NULL,
-		backup_eligible BOOLEAN NOT NULL DEFAULT 0,
-		backup_state BOOLEAN NOT NULL DEFAULT 0
-	);`
-	if _, err := testDB.Exec(schema); err != nil {
-		t.Fatalf("create schema: %v", err)
-	}
-
-	previousDB := db.Instance
-	db.Instance = testDB
-	t.Cleanup(func() {
-		db.Instance = previousDB
-		_ = testDB.Close()
-	})
-
-	return testDB
 }
 
-func TestHandleRegisterRejectsMissingTurnstileTokenWhenConfigured(t *testing.T) {
-	testDB := newRegisterTurnstileTestDB(t)
+func TestHandleSendCodeRejectsMissingTurnstileTokenWhenConfigured(t *testing.T) {
+	newSendCodeHandlerDB(t)
 	t.Setenv("TURNSTILE_SECRET_KEY", "secret")
 
-	if _, err := testDB.Exec("INSERT INTO verification_codes (email, code, expires_at) VALUES (?, ?, ?)", "user@example.com", "aaaaaaaaaaaaaaaa", time.Now().Add(time.Hour)); err != nil {
-		t.Fatalf("insert verification code failed: %v", err)
+	previousStore := CaptchaStore
+	CaptchaStore = newBoundedCaptchaStore(captchaStoreMaxEntries, captchaStoreExpiration)
+	t.Cleanup(func() {
+		CaptchaStore = previousStore
+	})
+	if err := CaptchaStore.Set("captcha-1", "123456"); err != nil {
+		t.Fatalf("set captcha: %v", err)
 	}
 
-	payload, err := proto.Marshal(&authpb.RegisterRequest{
-		Username: "User_100001",
-		Email:    "user@example.com",
-		Age:      123,
-		Password: "Qx7!mR2@pL9#sV4$kN8%tH3^wC6&yBAF",
-		Code:     "aaaaaaaaaaaaaaaa113608",
+	payload, err := proto.Marshal(&authpb.SendEmailCodeRequest{
+		Email:        "user@example.com",
+		CaptchaKey:   "captcha-1",
+		CaptchaValue: "123456",
 	})
 	if err != nil {
-		t.Fatalf("marshal register request: %v", err)
+		t.Fatalf("marshal send-code request: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/register", bytes.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/api/send-code", bytes.NewReader(payload))
 	req.RemoteAddr = "203.0.113.20:1234"
 	rec := httptest.NewRecorder()
 
-	HandleRegister(rec, req)
+	HandleSendCode(rec, req)
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected HTTP 403, got %d", rec.Code)
 	}
 
-	var res authpb.RegisterResponse
+	var res authpb.SendEmailCodeResponse
 	if err := proto.Unmarshal(rec.Body.Bytes(), &res); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}

@@ -49,11 +49,6 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 		sendProto(w, res)
 		return
 	}
-	if code, msg, ok := validateMaxBytes(req.TurnstileToken, maxTurnstileTokenBytes, "Cloudflare 验证凭证过长"); !ok {
-		res.Code, res.Msg = code, msg
-		sendProto(w, res)
-		return
-	}
 	if strings.TrimSpace(req.Username) == "" || req.Password == "" {
 		res.Code = http.StatusBadRequest
 		res.Msg = "用户名和密码不能为空"
@@ -94,11 +89,6 @@ func HandleRegister(w http.ResponseWriter, r *http.Request) {
 	if !isValidRegistrationPoW(email, req.Code) {
 		res.Code = http.StatusBadRequest
 		res.Msg = "PoW 验证码校验未通过，请检查字符串与哈希摘要"
-		sendProto(w, res)
-		return
-	}
-	if err := verifyRegistrationTurnstile(r, req.TurnstileToken); err != nil {
-		res.Code, res.Msg = turnstileErrorResponse(err)
 		sendProto(w, res)
 		return
 	}

@@ -38,7 +38,7 @@ type turnstileVerifyResponse struct {
 	Hostname   string   `json:"hostname"`
 }
 
-func verifyRegistrationTurnstile(r *http.Request, token string) error {
+func verifyTurnstile(r *http.Request, token string) error {
 	secret := strings.TrimSpace(os.Getenv("TURNSTILE_SECRET_KEY"))
 	if secret == "" {
 		return nil
@@ -52,7 +52,7 @@ func verifyRegistrationTurnstile(r *http.Request, token string) error {
 	form := url.Values{}
 	form.Set("secret", secret)
 	form.Set("response", trimmedToken)
-	if ip := strings.TrimSpace(getClientIP(r)); ip != "" {
+	if ip := strings.TrimSpace(getClientIPAddress(r)); ip != "" {
 		form.Set("remoteip", ip)
 	}
 
